@@ -177,7 +177,8 @@ function startScanner() {
     () => { /* ignore per-frame scan errors */ }
   ).then(() => {
     state.scannerActive = true;
-    renderTabContent();
+    const btn = document.getElementById('toggle-scan');
+    if (btn) btn.textContent = 'Arrêter la caméra';
   }).catch((err) => {
     document.getElementById('scan-error').innerHTML = `<div class="error-msg">Impossible d'accéder à la caméra : ${err}</div>`;
   });
