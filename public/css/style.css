@@ -441,7 +441,7 @@ td.pts-cell { font-family: var(--font-mono); }
   padding: 20px;
   max-width: 420px;
 }
-#qr-reader { border-radius: 10px; overflow: hidden; }
+#qr-reader { border-radius: 10px; overflow: hidden; min-height: 280px; }
 
 .client-result {
   margin-top: 18px;
