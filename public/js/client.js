@@ -68,8 +68,7 @@ function renderAuth() {
   app.innerHTML = `
     <div class="screen">
       <div class="hero-auth">
-        <div class="razor-line"></div>
-        <h1>HAIRSPRIT</h1>
+        <img src="/logo.jpg" alt="Hairsprit" class="hero-logo" />
         <p>Carte de fidélité digitale</p>
       </div>
 
@@ -168,7 +167,7 @@ function renderDashboard() {
   app.innerHTML = `
     <div class="topbar">
       <div class="brand">
-        <span class="mark">HAIRSPRIT</span>
+        <img src="/logo.jpg" alt="Hairsprit" class="brand-logo" />
         <span class="tag">Membre</span>
       </div>
       <button class="icon-btn" id="logout-btn" title="Déconnexion">${icon('logout')}</button>
