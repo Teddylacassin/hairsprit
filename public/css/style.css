@@ -485,3 +485,5 @@ td.pts-cell { font-family: var(--font-mono); }
   .admin-layout { flex-direction: column; }
   .admin-nav { flex-direction: row; width: 100%; overflow-x: auto; }
 }
+.hero-logo { height: 64px; width: auto; margin: 0 auto 14px; display: block; }
+.brand-logo { height: 30px; width: auto; display: block; }
