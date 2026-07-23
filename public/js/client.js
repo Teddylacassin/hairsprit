@@ -54,6 +54,16 @@ async function init() {
   renderAuth();
 }
 
+// Rafraîchit automatiquement les données quand l'app repasse au premier plan
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && state.token && state.client) {
+    try {
+      await loadClientData();
+      renderDashboard();
+    } catch (e) { /* silent */ }
+  }
+});
+
 async function loadClientData() {
   const meRes = await api('/me');
   state.client = meRes.client;
@@ -160,9 +170,43 @@ function unlockedRewards() {
   return state.rewards.filter(r => state.client.points >= r.points_required);
 }
 
+function checkNewlyUnlockedRewards(client, rewards) {
+  const key = `hairsprit_celebrated_${client.id}`;
+  const previousMax = parseInt(localStorage.getItem(key) || '0', 10);
+  const newlyUnlocked = rewards.filter(r => r.points_required <= client.points && r.points_required > previousMax);
+  localStorage.setItem(key, String(client.points));
+  return newlyUnlocked;
+}
+
+function showCelebration(rewards) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'sheet-backdrop';
+  backdrop.innerHTML = `
+    <div class="sheet" style="text-align:center;">
+      <div style="font-size:40px;margin-bottom:8px;">🎉</div>
+      <h3>Récompense débloquée !</h3>
+      <div class="sub">Félicitations, vous pouvez maintenant profiter de :</div>
+      ${rewards.map(r => `
+        <div class="reward-card unlocked" style="margin-bottom:10px;text-align:left;">
+          <div>
+            <div class="reward-name">${r.name}</div>
+            <div class="reward-desc">${r.description || ''}</div>
+          </div>
+          <span class="badge-unlocked">Débloqué</span>
+        </div>
+      `).join('')}
+      <button class="btn btn-primary" id="close-celebration" style="margin-top:8px;">Super, merci !</button>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+  backdrop.querySelector('#close-celebration').onclick = () => backdrop.remove();
+}
+
 function renderDashboard() {
   const c = state.client;
   const initials = `${c.prenom[0] || ''}${c.nom[0] || ''}`.toUpperCase();
+  const newlyUnlocked = checkNewlyUnlockedRewards(c, state.rewards);
 
   app.innerHTML = `
     <div class="topbar">
@@ -248,6 +292,10 @@ function renderDashboard() {
     renderAuth();
   };
   document.getElementById('book-btn').onclick = openBookingSheet;
+
+  if (newlyUnlocked.length > 0) {
+    showCelebration(newlyUnlocked);
+  }
 }
 
 function formatDate(iso) {
