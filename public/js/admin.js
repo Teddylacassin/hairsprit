@@ -58,8 +58,7 @@ function renderLogin() {
   app.innerHTML = `
     <div class="screen" style="max-width:400px;margin:0 auto;">
       <div class="hero-auth">
-        <div class="razor-line"></div>
-        <h1>HAIRSPRIT</h1>
+        <img src="/logo.jpg" alt="Hairsprit" class="hero-logo" />
         <p>Espace barber</p>
       </div>
       ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
@@ -107,7 +106,7 @@ function renderShell() {
   app.innerHTML = `
     <div class="topbar">
       <div class="brand">
-        <span class="mark">HAIRSPRIT</span>
+        <img src="/logo.jpg" alt="Hairsprit" class="brand-logo" />
         <span class="tag">Espace barber · ${state.username}</span>
       </div>
       <button class="icon-btn" id="logout-btn" title="Déconnexion">⏻</button>
