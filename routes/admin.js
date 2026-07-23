@@ -41,6 +41,37 @@ router.get('/client-by-qr/:qrToken', requireAdminAuth, async (req, res) => {
   res.json({ client: clientPublic(client) });
 });
 
+// POST /api/admin/client/:id/redeem -> use a reward, deduct points
+router.post('/client/:id/redeem', requireAdminAuth, async (req, res) => {
+  const targetClient = await db.get('SELECT * FROM clients WHERE id = ?', [req.params.id]);
+  if (!targetClient) return res.status(404).json({ error: 'Client introuvable.' });
+
+  const { reward_id } = req.body;
+  const reward = await db.get('SELECT * FROM rewards WHERE id = ?', [reward_id]);
+  if (!reward) return res.status(404).json({ error: 'Récompense introuvable.' });
+
+  if (targetClient.points < reward.points_required) {
+    return res.status(400).json({ error: 'Ce client n\'a pas assez de points pour cette récompense.' });
+  }
+
+  const dbClient = await db.pool.connect();
+  try {
+    await dbClient.query('BEGIN');
+    await dbClient.query('UPDATE clients SET points = points - $1 WHERE id = $2', [reward.points_required, targetClient.id]);
+    await dbClient.query('INSERT INTO visits (id, client_id, points_added, note) VALUES ($1,$2,$3,$4)',
+      [uuidv4(), targetClient.id, -reward.points_required, `Récompense utilisée : ${reward.name}`]);
+    await dbClient.query('COMMIT');
+  } catch (e) {
+    await dbClient.query('ROLLBACK');
+    throw e;
+  } finally {
+    dbClient.release();
+  }
+
+  const updated = await db.get('SELECT * FROM clients WHERE id = ?', [targetClient.id]);
+  res.json({ client: clientPublic(updated) });
+});
+
 // POST /api/admin/client/:id/point -> add a point after a service
 router.post('/client/:id/point', requireAdminAuth, async (req, res) => {
   const targetClient = await db.get('SELECT * FROM clients WHERE id = ?', [req.params.id]);
