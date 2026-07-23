@@ -202,11 +202,12 @@ async function handleScanResult(qrToken) {
   }
 }
 
-function renderScannedClient() {
+function renderScannedClient(justAdded) {
   const zone = document.getElementById('client-result-zone');
   const c = state.scannedClient;
   zone.innerHTML = `
     <div class="client-result">
+      ${justAdded ? `<div class="success-msg">✓ Point ajouté avec succès !</div>` : ''}
       <div class="name">${c.prenom} ${c.nom}</div>
       <div class="phone">${c.telephone}</div>
       <div class="points-line">${c.points} points</div>
@@ -214,12 +215,17 @@ function renderScannedClient() {
     </div>
   `;
   document.getElementById('add-point-btn').onclick = async () => {
+    const btn = document.getElementById('add-point-btn');
+    btn.disabled = true;
+    btn.textContent = 'Ajout en cours...';
     try {
       const res = await api(`/client/${c.id}/point`, { method: 'POST', body: JSON.stringify({ points: 1 }) });
       state.scannedClient = res.client;
-      renderScannedClient();
+      renderScannedClient(true);
     } catch (err) {
       zone.innerHTML += `<div class="error-msg">${err.message}</div>`;
+      btn.disabled = false;
+      btn.textContent = '+ Ajouter 1 point (prestation)';
     }
   };
 }
