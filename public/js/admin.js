@@ -202,16 +202,20 @@ async function handleScanResult(qrToken) {
   }
 }
 
-function renderScannedClient(justAdded) {
+function renderScannedClient(justAdded, justReset) {
   const zone = document.getElementById('client-result-zone');
   const c = state.scannedClient;
   zone.innerHTML = `
     <div class="client-result">
       ${justAdded ? `<div class="success-msg">✓ Point ajouté avec succès !</div>` : ''}
+      ${justReset ? `<div class="success-msg">✓ Points réinitialisés avec succès !</div>` : ''}
       <div class="name">${c.prenom} ${c.nom}</div>
       <div class="phone">${c.telephone}</div>
       <div class="points-line">${c.points} points</div>
       <button class="btn btn-primary" id="add-point-btn">+ Ajouter 1 point (prestation)</button>
+      ${c.points >= 10 ? `
+        <button class="btn btn-outline" id="reset-points-btn" style="margin-top:10px;">Réinitialiser les points (récompense utilisée)</button>
+      ` : ''}
     </div>
   `;
   document.getElementById('add-point-btn').onclick = async () => {
@@ -221,13 +225,30 @@ function renderScannedClient(justAdded) {
     try {
       const res = await api(`/client/${c.id}/point`, { method: 'POST', body: JSON.stringify({ points: 1 }) });
       state.scannedClient = res.client;
-      renderScannedClient(true);
+      renderScannedClient(true, false);
     } catch (err) {
       zone.innerHTML += `<div class="error-msg">${err.message}</div>`;
       btn.disabled = false;
       btn.textContent = '+ Ajouter 1 point (prestation)';
     }
   };
+  const resetBtn = document.getElementById('reset-points-btn');
+  if (resetBtn) {
+    resetBtn.onclick = async () => {
+      if (!confirm(`Confirmer la réinitialisation des points de ${c.prenom} ${c.nom} ?`)) return;
+      resetBtn.disabled = true;
+      resetBtn.textContent = '...';
+      try {
+        const res = await api(`/client/${c.id}/reset`, { method: 'POST' });
+        state.scannedClient = res.client;
+        renderScannedClient(false, true);
+      } catch (err) {
+        zone.innerHTML += `<div class="error-msg">${err.message}</div>`;
+        resetBtn.disabled = false;
+        resetBtn.textContent = 'Réinitialiser les points (récompense utilisée)';
+      }
+    };
+  }
 }
 
 /* ---------------- CLIENTS TAB ---------------- */
@@ -372,7 +393,7 @@ async function renderBookingsTab(main) {
     <div class="section-title" style="margin-top:0;">Demandes de réservation</div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Client</th><th>Message</th><th>Date</th><th>Statut</th><th></th></tr></thead>
+        <thead><tr><th>Client</th><th>Message</th><th>Date</th><th>Statut</th><th>Actions</th></tr></thead>
         <tbody>
           ${state.bookings.length === 0 ? `<tr><td colspan="5" style="text-align:center;color:var(--argent);">Aucune demande pour le moment.</td></tr>` : ''}
           ${state.bookings.map(b => `
@@ -382,11 +403,12 @@ async function renderBookingsTab(main) {
               <td>${formatDate(b.created_at)}</td>
               <td><span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span></td>
               <td>
-                <select class="status-select">
-                  <option value="en_attente" ${b.status === 'en_attente' ? 'selected' : ''}>En attente</option>
-                  <option value="confirme" ${b.status === 'confirme' ? 'selected' : ''}>Confirmé</option>
-                  <option value="annule" ${b.status === 'annule' ? 'selected' : ''}>Annulé</option>
-                </select>
+                ${b.status === 'en_attente' ? `
+                  <button class="btn btn-outline confirm-btn" style="width:auto;padding:8px 12px;font-size:12px;margin-bottom:6px;">✓ Confirmer</button>
+                  <button class="btn btn-danger cancel-btn" style="width:auto;padding:8px 12px;font-size:12px;">✕ Annuler</button>
+                ` : `
+                  <button class="btn btn-outline reopen-btn" style="width:auto;padding:8px 12px;font-size:12px;">Remettre en attente</button>
+                `}
               </td>
             </tr>
           `).join('')}
@@ -394,14 +416,22 @@ async function renderBookingsTab(main) {
       </table>
     </div>
   `;
-  main.querySelectorAll('.status-select').forEach(sel => {
-    sel.onchange = async (e) => {
-      const id = e.target.closest('tr').dataset.id;
-      try {
-        await api(`/bookings/${id}`, { method: 'PUT', body: JSON.stringify({ status: e.target.value }) });
-        renderBookingsTab(main);
-      } catch (err) { alert(err.message); }
-    };
+
+  async function updateStatus(id, status) {
+    try {
+      await api(`/bookings/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
+      renderBookingsTab(main);
+    } catch (err) { alert(err.message); }
+  }
+
+  main.querySelectorAll('.confirm-btn').forEach(btn => {
+    btn.onclick = () => updateStatus(btn.closest('tr').dataset.id, 'confirme');
+  });
+  main.querySelectorAll('.cancel-btn').forEach(btn => {
+    btn.onclick = () => updateStatus(btn.closest('tr').dataset.id, 'annule');
+  });
+  main.querySelectorAll('.reopen-btn').forEach(btn => {
+    btn.onclick = () => updateStatus(btn.closest('tr').dataset.id, 'en_attente');
   });
 }
 
