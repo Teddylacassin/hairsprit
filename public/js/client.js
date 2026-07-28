@@ -299,7 +299,11 @@ function renderDashboard() {
 }
 
 function formatDate(iso) {
-  const d = new Date(iso.replace(' ', 'T') + 'Z');
+  let s = iso;
+  if (typeof s === 'string' && s.includes(' ') && !s.includes('T')) {
+    s = s.replace(' ', 'T') + 'Z';
+  }
+  const d = new Date(s);
   return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -310,38 +314,93 @@ function openBookingSheet() {
   backdrop.innerHTML = `
     <div class="sheet">
       <h3>Réserver une coupe</h3>
-      <div class="sub">Précisez vos disponibilités, votre barbier vous recontactera pour confirmer.</div>
+      <div class="sub">Choisissez un créneau disponible.</div>
       <div id="booking-error"></div>
-      <form id="booking-form">
-        <div class="field">
-          <label for="message">Message (jour, heure souhaitée, prestation...)</label>
-          <textarea id="message" name="message" rows="3" placeholder="Ex : Samedi matin, taille de barbe + coupe"></textarea>
-        </div>
-        <button class="btn btn-primary" type="submit">Envoyer la demande</button>
-        <button class="btn btn-ghost" type="button" id="cancel-booking" style="margin-top:10px;">Annuler</button>
-      </form>
+      <div id="slots-zone"><div class="loading-spin"></div></div>
     </div>
   `;
   document.body.appendChild(backdrop);
-
   backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
-  backdrop.querySelector('#cancel-booking').onclick = () => backdrop.remove();
 
-  backdrop.querySelector('#booking-form').onsubmit = async (e) => {
-    e.preventDefault();
-    const message = e.target.message.value;
+  let selectedSlot = null;
+
+  async function loadSlots() {
+    const zone = backdrop.querySelector('#slots-zone');
     try {
-      await api('/booking', { method: 'POST', body: JSON.stringify({ message }) });
-      backdrop.querySelector('.sheet').innerHTML = `
-        <h3>Demande envoyée ✓</h3>
-        <div class="success-msg" style="margin-top:14px;">Votre demande a bien été transmise à Hairsprit. Vous serez recontacté pour confirmer votre rendez-vous.</div>
-        <button class="btn btn-outline" id="close-sheet">Fermer</button>
+      const res = await api('/available-slots');
+      if (res.slots.length === 0) {
+        zone.innerHTML = `<div class="empty-state">Aucun créneau disponible pour le moment. Contactez le salon directement.</div>
+          <button class="btn btn-ghost" id="cancel-booking" style="margin-top:14px;">Fermer</button>`;
+        zone.querySelector('#cancel-booking').onclick = () => backdrop.remove();
+        return;
+      }
+      const byDay = {};
+      res.slots.forEach(iso => {
+        const d = new Date(iso);
+        const dayKey = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+        if (!byDay[dayKey]) byDay[dayKey] = [];
+        byDay[dayKey].push(iso);
+      });
+      zone.innerHTML = `
+        <div style="max-height:340px;overflow-y:auto;">
+          ${Object.entries(byDay).map(([day, slots]) => `
+            <div class="section-title" style="margin-top:16px;">${day}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;">
+              ${slots.map(iso => `
+                <button type="button" class="btn btn-outline slot-btn" data-slot="${iso}" style="width:auto;padding:10px 14px;font-size:13px;">
+                  ${new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                </button>
+              `).join('')}
+            </div>
+          `).join('')}
+        </div>
+        <div class="field" style="margin-top:18px;">
+          <label for="message">Message (optionnel)</label>
+          <textarea id="message" name="message" rows="2" placeholder="Précision sur la prestation..."></textarea>
+        </div>
+        <button class="btn btn-primary" id="confirm-slot-btn" disabled>Choisissez un créneau</button>
+        <button class="btn btn-ghost" type="button" id="cancel-booking" style="margin-top:10px;">Annuler</button>
       `;
-      backdrop.querySelector('#close-sheet').onclick = () => backdrop.remove();
+
+      zone.querySelectorAll('.slot-btn').forEach(btn => {
+        btn.onclick = () => {
+          zone.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('unlocked'));
+          btn.classList.add('unlocked');
+          selectedSlot = btn.dataset.slot;
+          const confirmBtn = zone.querySelector('#confirm-slot-btn');
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = `Réserver le ${new Date(selectedSlot).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })} à ${new Date(selectedSlot).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+        };
+      });
+
+      zone.querySelector('#cancel-booking').onclick = () => backdrop.remove();
+
+      zone.querySelector('#confirm-slot-btn').onclick = async () => {
+        if (!selectedSlot) return;
+        const message = zone.querySelector('#message').value;
+        const confirmBtn = zone.querySelector('#confirm-slot-btn');
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Envoi en cours...';
+        try {
+          await api('/booking', { method: 'POST', body: JSON.stringify({ message, slot_datetime: selectedSlot }) });
+          backdrop.querySelector('.sheet').innerHTML = `
+            <h3>Demande envoyée ✓</h3>
+            <div class="success-msg" style="margin-top:14px;">Votre demande a bien été transmise à Hairsprit. Vous serez recontacté pour confirmer votre rendez-vous.</div>
+            <button class="btn btn-outline" id="close-sheet">Fermer</button>
+          `;
+          backdrop.querySelector('#close-sheet').onclick = () => backdrop.remove();
+        } catch (err) {
+          backdrop.querySelector('#booking-error').innerHTML = `<div class="error-msg">${err.message}</div>`;
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = 'Réessayer';
+        }
+      };
     } catch (err) {
-      backdrop.querySelector('#booking-error').innerHTML = `<div class="error-msg">${err.message}</div>`;
+      zone.innerHTML = `<div class="error-msg">${err.message}</div>`;
     }
-  };
+  }
+
+  loadSlots();
 }
 
 init();
