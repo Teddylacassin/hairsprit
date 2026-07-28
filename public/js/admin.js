@@ -391,29 +391,29 @@ async function renderBookingsTab(main) {
   }
   main.innerHTML = `
     <div class="section-title" style="margin-top:0;">Demandes de réservation</div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Client</th><th>Message</th><th>Date</th><th>Statut</th><th>Actions</th></tr></thead>
-        <tbody>
-          ${state.bookings.length === 0 ? `<tr><td colspan="5" style="text-align:center;color:var(--argent);">Aucune demande pour le moment.</td></tr>` : ''}
-          ${state.bookings.map(b => `
-            <tr data-id="${b.id}">
-              <td>${b.prenom} ${b.nom}<br><span style="color:var(--argent);font-size:12px;">${b.telephone}</span></td>
-              <td>${b.message || '—'}</td>
-              <td>${formatDate(b.created_at)}</td>
-              <td><span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span></td>
-              <td>
-                ${b.status === 'en_attente' ? `
-                  <button class="btn btn-outline confirm-btn" style="width:auto;padding:8px 12px;font-size:12px;margin-bottom:6px;">✓ Confirmer</button>
-                  <button class="btn btn-danger cancel-btn" style="width:auto;padding:8px 12px;font-size:12px;">✕ Annuler</button>
-                ` : `
-                  <button class="btn btn-outline reopen-btn" style="width:auto;padding:8px 12px;font-size:12px;">Remettre en attente</button>
-                `}
-              </td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
+    ${state.bookings.length === 0 ? `<div class="empty-state">Aucune demande pour le moment.</div>` : ''}
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      ${state.bookings.map(b => `
+        <div class="reward-admin-row" data-id="${b.id}" style="flex-direction:column;align-items:stretch;gap:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+            <div>
+              <div style="font-weight:600;font-size:14.5px;">${b.prenom} ${b.nom}</div>
+              <div style="color:var(--argent);font-size:12.5px;">${b.telephone}</div>
+            </div>
+            <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
+          </div>
+          <div style="font-size:13.5px;">${b.message || '—'}</div>
+          <div style="color:var(--argent);font-size:12px;">${formatDate(b.created_at)}</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${b.status === 'en_attente' ? `
+              <button class="btn btn-outline confirm-btn" style="width:auto;flex:1;padding:10px 14px;font-size:13px;">✓ Confirmer</button>
+              <button class="btn btn-danger cancel-btn" style="width:auto;flex:1;padding:10px 14px;font-size:13px;">✕ Annuler</button>
+            ` : `
+              <button class="btn btn-outline reopen-btn" style="width:auto;padding:10px 14px;font-size:13px;">Remettre en attente</button>
+            `}
+          </div>
+        </div>
+      `).join('')}
     </div>
   `;
 
@@ -425,13 +425,13 @@ async function renderBookingsTab(main) {
   }
 
   main.querySelectorAll('.confirm-btn').forEach(btn => {
-    btn.onclick = () => updateStatus(btn.closest('tr').dataset.id, 'confirme');
+    btn.onclick = () => updateStatus(btn.closest('[data-id]').dataset.id, 'confirme');
   });
   main.querySelectorAll('.cancel-btn').forEach(btn => {
-    btn.onclick = () => updateStatus(btn.closest('tr').dataset.id, 'annule');
+    btn.onclick = () => updateStatus(btn.closest('[data-id]').dataset.id, 'annule');
   });
   main.querySelectorAll('.reopen-btn').forEach(btn => {
-    btn.onclick = () => updateStatus(btn.closest('tr').dataset.id, 'en_attente');
+    btn.onclick = () => updateStatus(btn.closest('[data-id]').dataset.id, 'en_attente');
   });
 }
 
