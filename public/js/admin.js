@@ -40,7 +40,11 @@ async function api(path, options = {}) {
 }
 
 function formatDate(iso) {
-  const d = new Date(iso.replace(' ', 'T') + 'Z');
+  let s = iso;
+  if (typeof s === 'string' && s.includes(' ') && !s.includes('T')) {
+    s = s.replace(' ', 'T') + 'Z';
+  }
+  const d = new Date(s);
   return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -380,17 +384,58 @@ async function renderRewardsTab(main) {
 }
 
 /* ---------------- BOOKINGS TAB ---------------- */
+const WEEKDAYS = [
+  { value: 1, label: 'Lun' },
+  { value: 2, label: 'Mar' },
+  { value: 3, label: 'Mer' },
+  { value: 4, label: 'Jeu' },
+  { value: 5, label: 'Ven' },
+  { value: 6, label: 'Sam' },
+  { value: 0, label: 'Dim' },
+];
+
 async function renderBookingsTab(main) {
   main.innerHTML = `<div class="loading-spin"></div>`;
+  let schedule;
   try {
-    const res = await api('/bookings');
-    state.bookings = res.bookings;
+    const [bookingsRes, scheduleRes] = await Promise.all([api('/bookings'), api('/schedule')]);
+    state.bookings = bookingsRes.bookings;
+    schedule = scheduleRes.settings;
   } catch (e) {
     main.innerHTML = `<div class="error-msg">${e.message}</div>`;
     return;
   }
+  const openDaysArr = schedule.open_days.split(',').map(d => parseInt(d, 10));
+
   main.innerHTML = `
-    <div class="section-title" style="margin-top:0;">Demandes de réservation</div>
+    <div class="section-title" style="margin-top:0;">Horaires d'ouverture</div>
+    <div class="scanner-box" style="max-width:100%;">
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
+        ${WEEKDAYS.map(d => `
+          <label class="pill" style="cursor:pointer;padding:8px 12px;">
+            <input type="checkbox" class="day-check" value="${d.value}" ${openDaysArr.includes(d.value) ? 'checked' : ''} style="margin-right:6px;" />${d.label}
+          </label>
+        `).join('')}
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="field" style="margin-bottom:0;flex:1;min-width:110px;">
+          <label>Ouverture</label>
+          <input type="time" id="start-time" value="${schedule.start_time}" />
+        </div>
+        <div class="field" style="margin-bottom:0;flex:1;min-width:110px;">
+          <label>Fermeture</label>
+          <input type="time" id="end-time" value="${schedule.end_time}" />
+        </div>
+        <div class="field" style="margin-bottom:0;flex:1;min-width:130px;">
+          <label>Durée créneau (min)</label>
+          <input type="number" id="slot-duration" value="${schedule.slot_duration_minutes}" min="15" step="15" />
+        </div>
+      </div>
+      <button class="btn btn-outline" id="save-schedule-btn" style="margin-top:14px;">Enregistrer les horaires</button>
+      <div id="schedule-msg"></div>
+    </div>
+
+    <div class="section-title">Demandes de réservation</div>
     ${state.bookings.length === 0 ? `<div class="empty-state">Aucune demande pour le moment.</div>` : ''}
     <div style="display:flex;flex-direction:column;gap:10px;">
       ${state.bookings.map(b => `
@@ -402,8 +447,9 @@ async function renderBookingsTab(main) {
             </div>
             <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
           </div>
+          ${b.slot_datetime ? `<div style="font-family:var(--font-mono);font-size:14px;">${formatDate(b.slot_datetime)}</div>` : ''}
           <div style="font-size:13.5px;">${b.message || '—'}</div>
-          <div style="color:var(--argent);font-size:12px;">${formatDate(b.created_at)}</div>
+          <div style="color:var(--argent);font-size:12px;">Demande envoyée le ${formatDate(b.created_at)}</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             ${b.status === 'en_attente' ? `
               <button class="btn btn-outline confirm-btn" style="width:auto;flex:1;padding:10px 14px;font-size:13px;">✓ Confirmer</button>
@@ -416,6 +462,33 @@ async function renderBookingsTab(main) {
       `).join('')}
     </div>
   `;
+
+  main.querySelector('#save-schedule-btn').onclick = async () => {
+    const btn = main.querySelector('#save-schedule-btn');
+    const checkedDays = Array.from(main.querySelectorAll('.day-check:checked')).map(c => c.value).join(',');
+    const start_time = main.querySelector('#start-time').value;
+    const end_time = main.querySelector('#end-time').value;
+    const slot_duration_minutes = main.querySelector('#slot-duration').value;
+    if (!checkedDays) {
+      main.querySelector('#schedule-msg').innerHTML = `<div class="error-msg">Sélectionnez au moins un jour.</div>`;
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Enregistrement...';
+    try {
+      await api('/schedule', {
+        method: 'PUT',
+        body: JSON.stringify({ open_days: checkedDays, start_time, end_time, slot_duration_minutes }),
+      });
+      main.querySelector('#schedule-msg').innerHTML = `<div class="success-msg">✓ Horaires enregistrés.</div>`;
+      btn.disabled = false;
+      btn.textContent = 'Enregistrer les horaires';
+    } catch (err) {
+      main.querySelector('#schedule-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
+      btn.disabled = false;
+      btn.textContent = 'Enregistrer les horaires';
+    }
+  };
 
   async function updateStatus(id, status) {
     try {
