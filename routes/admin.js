@@ -179,10 +179,29 @@ router.delete('/rewards/:id', requireAdminAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// GET /api/admin/schedule -> get schedule settings
+router.get('/schedule', requireAdminAuth, async (req, res) => {
+  const settings = await db.get('SELECT * FROM schedule_settings WHERE id = ?', ['default']);
+  res.json({ settings });
+});
+
+// PUT /api/admin/schedule -> update schedule settings
+router.put('/schedule', requireAdminAuth, async (req, res) => {
+  const { open_days, start_time, end_time, slot_duration_minutes } = req.body;
+  if (!open_days || !start_time || !end_time || !slot_duration_minutes) {
+    return res.status(400).json({ error: 'Tous les champs sont requis.' });
+  }
+  await db.run(
+    'UPDATE schedule_settings SET open_days = ?, start_time = ?, end_time = ?, slot_duration_minutes = ? WHERE id = ?',
+    [open_days, start_time, end_time, parseInt(slot_duration_minutes, 10), 'default']
+  );
+  res.json({ ok: true });
+});
+
 // GET /api/admin/bookings
 router.get('/bookings', requireAdminAuth, async (req, res) => {
   const rows = await db.all(`
-    SELECT b.id, b.message, b.status, b.created_at, c.nom, c.prenom, c.telephone
+    SELECT b.id, b.message, b.status, b.created_at, b.slot_datetime, c.nom, c.prenom, c.telephone
     FROM bookings b JOIN clients c ON c.id = b.client_id
     ORDER BY b.created_at DESC
   `);
