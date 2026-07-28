@@ -72,6 +72,29 @@ router.post('/client/:id/redeem', requireAdminAuth, async (req, res) => {
   res.json({ client: clientPublic(updated) });
 });
 
+// POST /api/admin/client/:id/reset -> reset points to 0 (reward claimed)
+router.post('/client/:id/reset', requireAdminAuth, async (req, res) => {
+  const targetClient = await db.get('SELECT * FROM clients WHERE id = ?', [req.params.id]);
+  if (!targetClient) return res.status(404).json({ error: 'Client introuvable.' });
+
+  const dbClient = await db.pool.connect();
+  try {
+    await dbClient.query('BEGIN');
+    await dbClient.query('INSERT INTO visits (id, client_id, points_added, note) VALUES ($1,$2,$3,$4)',
+      [uuidv4(), targetClient.id, -targetClient.points, 'Récompense réclamée : points réinitialisés']);
+    await dbClient.query('UPDATE clients SET points = 0 WHERE id = $1', [targetClient.id]);
+    await dbClient.query('COMMIT');
+  } catch (e) {
+    await dbClient.query('ROLLBACK');
+    throw e;
+  } finally {
+    dbClient.release();
+  }
+
+  const updated = await db.get('SELECT * FROM clients WHERE id = ?', [targetClient.id]);
+  res.json({ client: clientPublic(updated) });
+});
+
 // POST /api/admin/client/:id/point -> add a point after a service
 router.post('/client/:id/point', requireAdminAuth, async (req, res) => {
   const targetClient = await db.get('SELECT * FROM clients WHERE id = ?', [req.params.id]);
