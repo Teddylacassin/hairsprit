@@ -65,6 +65,16 @@ async function initDb() {
       created_at TIMESTAMP NOT NULL DEFAULT now()
     );
   `);
+  await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS slot_datetime TIMESTAMP;`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schedule_settings (
+      id TEXT PRIMARY KEY,
+      open_days TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      slot_duration_minutes INTEGER NOT NULL
+    );
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS admins (
       id TEXT PRIMARY KEY,
@@ -72,6 +82,12 @@ async function initDb() {
       password_hash TEXT NOT NULL
     );
   `);
+
+  const scheduleCount = await get('SELECT COUNT(*) as c FROM schedule_settings');
+  if (parseInt(scheduleCount.c, 10) === 0) {
+    await run('INSERT INTO schedule_settings (id, open_days, start_time, end_time, slot_duration_minutes) VALUES (?,?,?,?,?)',
+      ['default', '1,2,3,4,5,6', '09:00', '22:00', 120]);
+  }
 
   const rewardCount = await get('SELECT COUNT(*) as c FROM rewards');
   if (parseInt(rewardCount.c, 10) === 0) {
