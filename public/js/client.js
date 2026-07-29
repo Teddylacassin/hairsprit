@@ -12,6 +12,7 @@ const state = {
   loading: false,
   error: null,
   cardFlipped: false,
+  dashboardTab: 'card',
 };
 
 function saveToken(token) {
@@ -244,9 +245,15 @@ function showBookingNotification(bookings) {
   backdrop.querySelector('#close-booking-notif').onclick = () => backdrop.remove();
 }
 
+const DASHBOARD_TABS = [
+  { id: 'card', label: 'Carte' },
+  { id: 'rewards', label: 'Récompenses' },
+  { id: 'bookings', label: 'Réservations' },
+  { id: 'history', label: 'Historique' },
+];
+
 function renderDashboard() {
   const c = state.client;
-  const initials = `${c.prenom[0] || ''}${c.nom[0] || ''}`.toUpperCase();
   const newlyUnlocked = checkNewlyUnlockedRewards(c, state.rewards);
   const bookingChanges = checkBookingStatusChanges(c, state.bookings);
 
@@ -259,12 +266,54 @@ function renderDashboard() {
       <button class="icon-btn" id="logout-btn" title="Déconnexion">${icon('logout')}</button>
     </div>
 
-    <div class="screen">
+    <div class="admin-nav" style="padding:0 20px;margin-bottom:6px;flex-direction:row;overflow-x:auto;">
+      ${DASHBOARD_TABS.map(t => `<button data-tab="${t.id}" class="${state.dashboardTab === t.id ? 'active' : ''}" style="white-space:nowrap;">${t.label}</button>`).join('')}
+    </div>
+
+    <div class="screen" id="dashboard-content"></div>
+
+    <div class="book-cta">
+      <button class="btn btn-primary" id="book-btn">${icon('calendar')} Réserver une coupe</button>
+    </div>
+  `;
+
+  document.querySelectorAll('.admin-nav button').forEach(btn => {
+    btn.onclick = () => {
+      state.dashboardTab = btn.dataset.tab;
+      renderDashboard();
+    };
+  });
+  document.getElementById('logout-btn').onclick = () => {
+    clearToken();
+    state.client = null;
+    state.qrcode = null;
+    state.cardFlipped = false;
+    renderAuth();
+  };
+  document.getElementById('book-btn').onclick = openBookingSheet;
+
+  renderDashboardTabContent();
+
+  if (bookingChanges.length > 0) {
+    showBookingNotification(bookingChanges);
+  } else if (newlyUnlocked.length > 0) {
+    showCelebration(newlyUnlocked);
+  }
+}
+
+function renderDashboardTabContent() {
+  const c = state.client;
+  const zone = document.getElementById('dashboard-content');
+  if (!zone) return;
+
+  if (state.dashboardTab === 'card') {
+    const initials = `${c.prenom[0] || ''}${c.nom[0] || ''}`.toUpperCase();
+    zone.innerHTML = `
       <div class="card-stage">
         <div class="loyalty-card ${state.cardFlipped ? 'flipped' : ''}" id="loyalty-card">
           <div class="card-face front">
             <div class="card-top-row">
-              <span class="card-logo">HAIRSPRIT</span>
+              <img src="/logo.jpg" alt="Hairsprit" class="card-logo-img" />
               <div class="card-chip">${icon('scissors')}</div>
             </div>
             <div>
@@ -285,8 +334,14 @@ function renderDashboard() {
         </div>
       </div>
       <div class="card-flip-note">${initials} · Carte n°${c.id.slice(0, 8).toUpperCase()}</div>
+    `;
+    document.getElementById('loyalty-card').onclick = toggleCardFlip;
+    return;
+  }
 
-      <div class="section-title">Récompenses</div>
+  if (state.dashboardTab === 'rewards') {
+    zone.innerHTML = `
+      <div class="section-title" style="margin-top:0;">Récompenses</div>
       <div class="rewards-grid">
         ${state.rewards.length === 0 ? `<div class="empty-state">Aucune récompense disponible pour le moment.</div>` : ''}
         ${state.rewards.map(r => {
@@ -304,23 +359,33 @@ function renderDashboard() {
           `;
         }).join('')}
       </div>
+    `;
+    return;
+  }
 
-      ${state.bookings.length > 0 ? `
-        <div class="section-title">Mes réservations</div>
-        <div style="display:flex;flex-direction:column;gap:8px;">
-          ${state.bookings.map(b => `
-            <div class="history-item" style="align-items:flex-start;">
-              <div>
-                <div>${b.slot_datetime ? formatDate(b.slot_datetime) : (b.message || 'Demande de réservation')}</div>
-                ${b.slot_datetime && b.message ? `<div class="date">${b.message}</div>` : ''}
-              </div>
-              <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
+  if (state.dashboardTab === 'bookings') {
+    const visibleBookings = state.bookings.filter(b => b.status !== 'annule');
+    zone.innerHTML = `
+      <div class="section-title" style="margin-top:0;">Mes réservations</div>
+      ${visibleBookings.length === 0 ? `<div class="empty-state">Aucune réservation pour le moment.<br>Utilisez le bouton en bas pour réserver une coupe.</div>` : ''}
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${visibleBookings.map(b => `
+          <div class="history-item" style="align-items:flex-start;">
+            <div>
+              <div>${b.slot_datetime ? formatDate(b.slot_datetime) : (b.message || 'Demande de réservation')}</div>
+              ${b.slot_datetime && b.message ? `<div class="date">${b.message}</div>` : ''}
             </div>
-          `).join('')}
-        </div>
-      ` : ''}
+            <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    return;
+  }
 
-      <div class="section-title">Historique des visites</div>
+  if (state.dashboardTab === 'history') {
+    zone.innerHTML = `
+      <div class="section-title" style="margin-top:0;">Historique des visites</div>
       <div class="history-list">
         ${state.history.length === 0 ? `<div class="empty-state">Aucune visite enregistrée pour l'instant.<br>Votre première coupe apparaîtra ici.</div>` : ''}
         ${state.history.map(v => `
@@ -333,27 +398,7 @@ function renderDashboard() {
           </div>
         `).join('')}
       </div>
-    </div>
-
-    <div class="book-cta">
-      <button class="btn btn-primary" id="book-btn">${icon('calendar')} Réserver une coupe</button>
-    </div>
-  `;
-
-  document.getElementById('loyalty-card').onclick = toggleCardFlip;
-  document.getElementById('logout-btn').onclick = () => {
-    clearToken();
-    state.client = null;
-    state.qrcode = null;
-    state.cardFlipped = false;
-    renderAuth();
-  };
-  document.getElementById('book-btn').onclick = openBookingSheet;
-
-  if (bookingChanges.length > 0) {
-    showBookingNotification(bookingChanges);
-  } else if (newlyUnlocked.length > 0) {
-    showCelebration(newlyUnlocked);
+    `;
   }
 }
 
