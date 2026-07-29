@@ -6,6 +6,7 @@ const state = {
   client: null,
   rewards: [],
   history: [],
+  bookings: [],
   qrcode: null,
   authMode: 'login', // 'login' | 'register'
   loading: false,
@@ -67,9 +68,10 @@ document.addEventListener('visibilitychange', async () => {
 async function loadClientData() {
   const meRes = await api('/me');
   state.client = meRes.client;
-  const [rewardsRes, historyRes] = await Promise.all([api('/rewards'), api('/history')]);
+  const [rewardsRes, historyRes, bookingsRes] = await Promise.all([api('/rewards'), api('/history'), api('/bookings')]);
   state.rewards = rewardsRes.rewards;
   state.history = historyRes.visits;
+  state.bookings = bookingsRes.bookings;
 }
 
 /* ---------------- AUTH SCREEN ---------------- */
@@ -178,6 +180,22 @@ function checkNewlyUnlockedRewards(client, rewards) {
   return newlyUnlocked;
 }
 
+function checkBookingStatusChanges(client, bookings) {
+  const key = `hairsprit_booking_status_${client.id}`;
+  const previousMap = JSON.parse(localStorage.getItem(key) || '{}');
+  const changed = [];
+  bookings.forEach(b => {
+    const prevStatus = previousMap[b.id];
+    if ((b.status === 'confirme' || b.status === 'annule') && prevStatus !== b.status) {
+      changed.push(b);
+    }
+  });
+  const newMap = {};
+  bookings.forEach(b => { newMap[b.id] = b.status; });
+  localStorage.setItem(key, JSON.stringify(newMap));
+  return changed;
+}
+
 function showCelebration(rewards) {
   const backdrop = document.createElement('div');
   backdrop.className = 'sheet-backdrop';
@@ -203,10 +221,34 @@ function showCelebration(rewards) {
   backdrop.querySelector('#close-celebration').onclick = () => backdrop.remove();
 }
 
+function showBookingNotification(bookings) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'sheet-backdrop';
+  backdrop.innerHTML = `
+    <div class="sheet" style="text-align:center;">
+      <div style="font-size:40px;margin-bottom:8px;">${bookings[0].status === 'confirme' ? '✅' : 'ℹ️'}</div>
+      <h3>${bookings.length > 1 ? 'Mise à jour de vos réservations' : (bookings[0].status === 'confirme' ? 'Réservation confirmée !' : 'Réservation annulée')}</h3>
+      ${bookings.map(b => `
+        <div class="history-item" style="text-align:left;margin-top:10px;">
+          <div>
+            <div>${b.slot_datetime ? formatDate(b.slot_datetime) : (b.message || 'Votre demande')}</div>
+          </div>
+          <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
+        </div>
+      `).join('')}
+      <button class="btn btn-primary" id="close-booking-notif" style="margin-top:14px;">OK</button>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+  backdrop.querySelector('#close-booking-notif').onclick = () => backdrop.remove();
+}
+
 function renderDashboard() {
   const c = state.client;
   const initials = `${c.prenom[0] || ''}${c.nom[0] || ''}`.toUpperCase();
   const newlyUnlocked = checkNewlyUnlockedRewards(c, state.rewards);
+  const bookingChanges = checkBookingStatusChanges(c, state.bookings);
 
   app.innerHTML = `
     <div class="topbar">
@@ -263,6 +305,21 @@ function renderDashboard() {
         }).join('')}
       </div>
 
+      ${state.bookings.length > 0 ? `
+        <div class="section-title">Mes réservations</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${state.bookings.map(b => `
+            <div class="history-item" style="align-items:flex-start;">
+              <div>
+                <div>${b.slot_datetime ? formatDate(b.slot_datetime) : (b.message || 'Demande de réservation')}</div>
+                ${b.slot_datetime && b.message ? `<div class="date">${b.message}</div>` : ''}
+              </div>
+              <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+
       <div class="section-title">Historique des visites</div>
       <div class="history-list">
         ${state.history.length === 0 ? `<div class="empty-state">Aucune visite enregistrée pour l'instant.<br>Votre première coupe apparaîtra ici.</div>` : ''}
@@ -293,7 +350,9 @@ function renderDashboard() {
   };
   document.getElementById('book-btn').onclick = openBookingSheet;
 
-  if (newlyUnlocked.length > 0) {
+  if (bookingChanges.length > 0) {
+    showBookingNotification(bookingChanges);
+  } else if (newlyUnlocked.length > 0) {
     showCelebration(newlyUnlocked);
   }
 }
