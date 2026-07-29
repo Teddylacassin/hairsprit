@@ -145,6 +145,15 @@ router.get('/available-slots', requireClientAuth, async (req, res) => {
   res.json({ slots, durationMinutes: duration });
 });
 
+// GET /api/client/bookings -> client's own booking requests with status
+router.get('/bookings', requireClientAuth, async (req, res) => {
+  const bookings = await db.all(
+    'SELECT id, message, status, slot_datetime, created_at FROM bookings WHERE client_id = ? ORDER BY created_at DESC',
+    [req.clientId]
+  );
+  res.json({ bookings });
+});
+
 // POST /api/client/booking
 router.post('/booking', requireClientAuth, async (req, res) => {
   const { message, slot_datetime } = req.body;
