@@ -313,7 +313,7 @@ function renderDashboardTabContent() {
         <div class="loyalty-card ${state.cardFlipped ? 'flipped' : ''}" id="loyalty-card">
           <div class="card-face front">
             <div class="card-top-row">
-              <img src="/logo.jpg" alt="Hairsprit" class="card-logo-img" />
+              <span class="card-logo">HAIRSPRIT</span>
               <div class="card-chip">${icon('scissors')}</div>
             </div>
             <div>
