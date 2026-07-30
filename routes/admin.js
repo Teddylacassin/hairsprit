@@ -12,6 +12,7 @@ function clientPublic(client) {
     nom: client.nom,
     prenom: client.prenom,
     telephone: client.telephone,
+    address: client.address,
     points: client.points,
     created_at: client.created_at,
   };
@@ -198,10 +199,33 @@ router.put('/schedule', requireAdminAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// GET /api/admin/blocked-dates -> list all blocked dates
+router.get('/blocked-dates', requireAdminAuth, async (req, res) => {
+  const rows = await db.all('SELECT id, blocked_date, reason FROM blocked_dates ORDER BY blocked_date ASC');
+  res.json({ blockedDates: rows });
+});
+
+// POST /api/admin/blocked-dates -> block a date
+router.post('/blocked-dates', requireAdminAuth, async (req, res) => {
+  const { date, reason } = req.body;
+  if (!date) return res.status(400).json({ error: 'Date requise.' });
+  const existing = await db.get('SELECT id FROM blocked_dates WHERE blocked_date = ?', [date]);
+  if (existing) return res.status(409).json({ error: 'Cette date est déjà bloquée.' });
+  const id = uuidv4();
+  await db.run('INSERT INTO blocked_dates (id, blocked_date, reason) VALUES (?,?,?)', [id, date, (reason || '').trim().slice(0, 200)]);
+  res.json({ ok: true, id });
+});
+
+// DELETE /api/admin/blocked-dates/:id -> unblock a date
+router.delete('/blocked-dates/:id', requireAdminAuth, async (req, res) => {
+  await db.run('DELETE FROM blocked_dates WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+});
+
 // GET /api/admin/bookings
 router.get('/bookings', requireAdminAuth, async (req, res) => {
   const rows = await db.all(`
-    SELECT b.id, b.message, b.status, b.created_at, b.slot_datetime, c.nom, c.prenom, c.telephone
+    SELECT b.id, b.message, b.status, b.created_at, b.slot_datetime, c.nom, c.prenom, c.telephone, c.address
     FROM bookings b JOIN clients c ON c.id = b.client_id
     ORDER BY b.created_at DESC
   `);
