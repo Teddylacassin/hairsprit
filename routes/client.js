@@ -16,6 +16,7 @@ function clientPublic(client) {
     nom: client.nom,
     prenom: client.prenom,
     telephone: client.telephone,
+    address: client.address,
     points: client.points,
     created_at: client.created_at,
   };
@@ -24,7 +25,7 @@ function clientPublic(client) {
 // POST /api/client/register
 router.post('/register', async (req, res) => {
   try {
-    const { nom, prenom, telephone } = req.body;
+    const { nom, prenom, telephone, address } = req.body;
     if (!nom || !prenom || !telephone) {
       return res.status(400).json({ error: 'Nom, prénom et téléphone sont obligatoires.' });
     }
@@ -40,8 +41,8 @@ router.post('/register', async (req, res) => {
 
     const id = uuidv4();
     const qrToken = uuidv4();
-    await db.run('INSERT INTO clients (id, nom, prenom, telephone, qr_token, points) VALUES (?,?,?,?,?,0)',
-      [id, nom.trim(), prenom.trim(), tel, qrToken]);
+    await db.run('INSERT INTO clients (id, nom, prenom, telephone, address, qr_token, points) VALUES (?,?,?,?,?,?,0)',
+      [id, nom.trim(), prenom.trim(), tel, (address || '').trim() || null, qrToken]);
 
     const client = await db.get('SELECT * FROM clients WHERE id = ?', [id]);
     const token = signToken({ id, role: 'client' });
@@ -72,6 +73,17 @@ router.post('/login', async (req, res) => {
 router.get('/me', requireClientAuth, async (req, res) => {
   const client = await db.get('SELECT * FROM clients WHERE id = ?', [req.clientId]);
   if (!client) return res.status(404).json({ error: 'Client introuvable.' });
+  res.json({ client: clientPublic(client) });
+});
+
+// PUT /api/client/me -> update own address
+router.put('/me', requireClientAuth, async (req, res) => {
+  const { address } = req.body;
+  await db.run('UPDATE clients SET address = ? WHERE id = ?', [
+    (address || '').trim() || null,
+    req.clientId,
+  ]);
+  const client = await db.get('SELECT * FROM clients WHERE id = ?', [req.clientId]);
   res.json({ client: clientPublic(client) });
 });
 
@@ -118,6 +130,9 @@ router.get('/available-slots', requireClientAuth, async (req, res) => {
   );
   const taken = new Set(takenRows.map(r => new Date(r.slot_datetime).toISOString()));
 
+  const blockedRows = await db.all('SELECT blocked_date FROM blocked_dates');
+  const blockedDates = new Set(blockedRows.map(r => new Date(r.blocked_date).toISOString().slice(0, 10)));
+
   const slots = [];
   const now = new Date();
   for (let dayOffset = 0; dayOffset < 14; dayOffset++) {
@@ -125,6 +140,7 @@ router.get('/available-slots', requireClientAuth, async (req, res) => {
     day.setDate(day.getDate() + dayOffset);
     day.setHours(0, 0, 0, 0);
     if (!openDays.includes(day.getDay())) continue;
+    if (blockedDates.has(day.toISOString().slice(0, 10))) continue;
 
     let cursor = new Date(day);
     cursor.setHours(startH, startM, 0, 0);
@@ -171,6 +187,7 @@ router.post('/booking', requireClientAuth, async (req, res) => {
 
   await db.run('INSERT INTO bookings (id, client_id, message, slot_datetime) VALUES (?,?,?,?)',
     [id, req.clientId, (message || '').trim().slice(0, 500), slot_datetime || null]);
+
   res.json({ ok: true, bookingId: id });
 });
 
