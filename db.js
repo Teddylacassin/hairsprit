@@ -66,6 +66,7 @@ async function initDb() {
     );
   `);
   await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS slot_datetime TIMESTAMP;`);
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS address TEXT;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schedule_settings (
       id TEXT PRIMARY KEY,
@@ -73,6 +74,25 @@ async function initDb() {
       start_time TEXT NOT NULL,
       end_time TEXT NOT NULL,
       slot_duration_minutes INTEGER NOT NULL
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS blocked_dates (
+      id TEXT PRIMARY KEY,
+      blocked_date DATE UNIQUE NOT NULL,
+      reason TEXT
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS reviews (
+      id TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES clients(id),
+      rating INTEGER NOT NULL,
+      comment TEXT,
+      visible INTEGER NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now(),
+      UNIQUE(client_id)
     );
   `);
   await pool.query(`
