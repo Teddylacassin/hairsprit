@@ -272,13 +272,14 @@ async function renderClientsTab(main) {
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Client</th><th>Téléphone</th><th>Points</th><th>Membre depuis</th></tr></thead>
+        <thead><tr><th>Client</th><th>Téléphone</th><th>Adresse</th><th>Points</th><th>Membre depuis</th></tr></thead>
         <tbody>
-          ${state.clients.length === 0 ? `<tr><td colspan="4" style="text-align:center;color:var(--argent);">Aucun client trouvé.</td></tr>` : ''}
+          ${state.clients.length === 0 ? `<tr><td colspan="5" style="text-align:center;color:var(--argent);">Aucun client trouvé.</td></tr>` : ''}
           ${state.clients.map(c => `
             <tr>
               <td>${c.prenom} ${c.nom}</td>
               <td>${c.telephone}</td>
+              <td style="color:var(--argent);font-size:12.5px;">${c.address || '—'}</td>
               <td class="pts-cell">${c.points}</td>
               <td>${formatDate(c.created_at)}</td>
             </tr>
@@ -445,6 +446,7 @@ async function renderBookingsTab(main) {
             <div>
               <div style="font-weight:600;font-size:14.5px;">${b.prenom} ${b.nom}</div>
               <div style="color:var(--argent);font-size:12.5px;">${b.telephone}</div>
+              ${b.address ? `<div style="color:var(--argent);font-size:12px;">📍 ${b.address}</div>` : ''}
             </div>
             <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
           </div>
