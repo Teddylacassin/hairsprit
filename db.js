@@ -84,6 +84,13 @@ async function initDb() {
     );
   `);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS blocked_slots (
+      id TEXT PRIMARY KEY,
+      slot_datetime TIMESTAMP UNIQUE NOT NULL,
+      reason TEXT
+    );
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS reviews (
       id TEXT PRIMARY KEY,
       client_id TEXT NOT NULL REFERENCES clients(id),
