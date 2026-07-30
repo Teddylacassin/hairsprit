@@ -222,6 +222,61 @@ router.delete('/blocked-dates/:id', requireAdminAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// GET /api/admin/slots-for-date/:date -> compute the schedule's fixed slot times for a given date
+router.get('/slots-for-date/:date', requireAdminAuth, async (req, res) => {
+  const settings = await db.get('SELECT * FROM schedule_settings WHERE id = ?', ['default']);
+  if (!settings) return res.json({ slots: [] });
+
+  const [startH, startM] = settings.start_time.split(':').map(Number);
+  const [endH, endM] = settings.end_time.split(':').map(Number);
+  const duration = settings.slot_duration_minutes;
+
+  const day = new Date(req.params.date + 'T00:00:00Z');
+  let cursor = new Date(day);
+  cursor.setUTCHours(startH, startM, 0, 0);
+  const dayEnd = new Date(day);
+  dayEnd.setUTCHours(endH, endM, 0, 0);
+
+  const takenRows = await db.all(
+    `SELECT slot_datetime FROM bookings WHERE slot_datetime IS NOT NULL AND status != 'annule'`
+  );
+  const taken = new Set(takenRows.map(r => new Date(r.slot_datetime).toISOString()));
+  const blockedRows = await db.all('SELECT slot_datetime FROM blocked_slots');
+  const blocked = new Set(blockedRows.map(r => new Date(r.slot_datetime).toISOString()));
+
+  const slots = [];
+  while (cursor.getTime() + duration * 60000 <= dayEnd.getTime()) {
+    const iso = cursor.toISOString();
+    slots.push({ datetime: iso, taken: taken.has(iso), blocked: blocked.has(iso) });
+    cursor = new Date(cursor.getTime() + duration * 60000);
+  }
+
+  res.json({ slots });
+});
+
+// GET /api/admin/blocked-slots -> list all manually blocked time slots
+router.get('/blocked-slots', requireAdminAuth, async (req, res) => {
+  const rows = await db.all('SELECT id, slot_datetime, reason FROM blocked_slots WHERE slot_datetime >= now() ORDER BY slot_datetime ASC');
+  res.json({ blockedSlots: rows });
+});
+
+// POST /api/admin/blocked-slots -> block a specific time slot
+router.post('/blocked-slots', requireAdminAuth, async (req, res) => {
+  const { slot_datetime, reason } = req.body;
+  if (!slot_datetime) return res.status(400).json({ error: 'Créneau requis.' });
+  const existing = await db.get('SELECT id FROM blocked_slots WHERE slot_datetime = ?', [slot_datetime]);
+  if (existing) return res.status(409).json({ error: 'Ce créneau est déjà bloqué.' });
+  const id = uuidv4();
+  await db.run('INSERT INTO blocked_slots (id, slot_datetime, reason) VALUES (?,?,?)', [id, slot_datetime, (reason || '').trim().slice(0, 200)]);
+  res.json({ ok: true, id });
+});
+
+// DELETE /api/admin/blocked-slots/:id -> unblock a time slot
+router.delete('/blocked-slots/:id', requireAdminAuth, async (req, res) => {
+  await db.run('DELETE FROM blocked_slots WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+});
+
 // GET /api/admin/bookings
 router.get('/bookings', requireAdminAuth, async (req, res) => {
   const rows = await db.all(`
