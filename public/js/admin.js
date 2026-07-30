@@ -406,6 +406,7 @@ async function renderBookingsTab(main) {
     return;
   }
   const openDaysArr = schedule.open_days.split(',').map(d => parseInt(d, 10));
+  const visibleBookings = state.bookings.filter(b => b.status !== 'annule');
 
   main.innerHTML = `
     <div class="section-title" style="margin-top:0;">Horaires d'ouverture</div>
@@ -436,9 +437,9 @@ async function renderBookingsTab(main) {
     </div>
 
     <div class="section-title">Demandes de réservation</div>
-    ${state.bookings.length === 0 ? `<div class="empty-state">Aucune demande pour le moment.</div>` : ''}
+    ${visibleBookings.length === 0 ? `<div class="empty-state">Aucune demande pour le moment.</div>` : ''}
     <div style="display:flex;flex-direction:column;gap:10px;">
-      ${state.bookings.map(b => `
+      ${visibleBookings.map(b => `
         <div class="reward-admin-row" data-id="${b.id}" style="flex-direction:column;align-items:stretch;gap:10px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
             <div>
