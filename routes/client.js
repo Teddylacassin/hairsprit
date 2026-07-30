@@ -170,6 +170,19 @@ router.get('/bookings', requireClientAuth, async (req, res) => {
   res.json({ bookings });
 });
 
+// PUT /api/client/booking/:id/cancel -> cancel own booking
+router.put('/booking/:id/cancel', requireClientAuth, async (req, res) => {
+  const booking = await db.get('SELECT * FROM bookings WHERE id = ?', [req.params.id]);
+  if (!booking || booking.client_id !== req.clientId) {
+    return res.status(404).json({ error: 'Réservation introuvable.' });
+  }
+  if (booking.status === 'annule') {
+    return res.status(400).json({ error: 'Cette réservation est déjà annulée.' });
+  }
+  await db.run('UPDATE bookings SET status = ? WHERE id = ?', ['annule', req.params.id]);
+  res.json({ ok: true });
+});
+
 // POST /api/client/booking
 router.post('/booking', requireClientAuth, async (req, res) => {
   const { message, slot_datetime } = req.body;
