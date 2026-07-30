@@ -398,10 +398,12 @@ const WEEKDAYS = [
 async function renderBookingsTab(main) {
   main.innerHTML = `<div class="loading-spin"></div>`;
   let schedule;
+  let blockedDates;
   try {
-    const [bookingsRes, scheduleRes] = await Promise.all([api('/bookings'), api('/schedule')]);
+    const [bookingsRes, scheduleRes, blockedRes] = await Promise.all([api('/bookings'), api('/schedule'), api('/blocked-dates')]);
     state.bookings = bookingsRes.bookings;
     schedule = scheduleRes.settings;
+    blockedDates = blockedRes.blockedDates;
   } catch (e) {
     main.innerHTML = `<div class="error-msg">${e.message}</div>`;
     return;
@@ -435,6 +437,35 @@ async function renderBookingsTab(main) {
       </div>
       <button class="btn btn-outline" id="save-schedule-btn" style="margin-top:14px;">Enregistrer les horaires</button>
       <div id="schedule-msg"></div>
+    </div>
+
+    <div class="section-title">Jours de congé / fermeture ponctuelle</div>
+    <div class="scanner-box" style="max-width:100%;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="field" style="margin-bottom:0;flex:1;min-width:150px;">
+          <label>Date</label>
+          <input type="date" id="block-date-input" />
+        </div>
+        <div class="field" style="margin-bottom:0;flex:2;min-width:180px;">
+          <label>Raison (optionnel)</label>
+          <input type="text" id="block-reason-input" placeholder="Ex : vacances, jour férié..." />
+        </div>
+      </div>
+      <button class="btn btn-outline" id="add-blocked-date-btn" style="margin-top:14px;">Bloquer cette date</button>
+      <div id="blocked-date-msg"></div>
+      ${blockedDates.length > 0 ? `
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px;">
+          ${blockedDates.map(bd => `
+            <div class="history-item" data-blocked-id="${bd.id}">
+              <div>
+                <div>${new Date(bd.blocked_date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })}</div>
+                ${bd.reason ? `<div class="date">${bd.reason}</div>` : ''}
+              </div>
+              <button class="btn btn-danger unblock-date-btn" style="width:auto;padding:8px 12px;font-size:12.5px;">Débloquer</button>
+            </div>
+          `).join('')}
+        </div>
+      ` : `<div class="empty-state" style="margin-top:14px;">Aucune date bloquée pour le moment.</div>`}
     </div>
 
     <div class="section-title">Demandes de réservation</div>
@@ -492,6 +523,43 @@ async function renderBookingsTab(main) {
       btn.textContent = 'Enregistrer les horaires';
     }
   };
+
+  main.querySelector('#add-blocked-date-btn').onclick = async () => {
+    const btn = main.querySelector('#add-blocked-date-btn');
+    const date = main.querySelector('#block-date-input').value;
+    const reason = main.querySelector('#block-reason-input').value;
+    if (!date) {
+      main.querySelector('#blocked-date-msg').innerHTML = `<div class="error-msg">Choisissez une date.</div>`;
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Ajout...';
+    try {
+      await api('/blocked-dates', { method: 'POST', body: JSON.stringify({ date, reason }) });
+      renderBookingsTab(main);
+    } catch (err) {
+      main.querySelector('#blocked-date-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
+      btn.disabled = false;
+      btn.textContent = 'Bloquer cette date';
+    }
+  };
+
+  main.querySelectorAll('.unblock-date-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('[data-blocked-id]');
+      const id = row.dataset.blockedId;
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        await api(`/blocked-dates/${id}`, { method: 'DELETE' });
+        renderBookingsTab(main);
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+        btn.textContent = 'Débloquer';
+      }
+    };
+  });
 
   async function updateStatus(id, status) {
     try {
