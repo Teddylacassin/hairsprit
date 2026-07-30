@@ -97,6 +97,10 @@ function renderAuth() {
             <label for="nom">Nom</label>
             <input id="nom" name="nom" placeholder="Haddad" required />
           </div>
+          <div class="field">
+            <label for="address">Adresse (optionnel, pour prestation à domicile)</label>
+            <input id="address" name="address" placeholder="12 rue des Lilas, 75011 Paris" />
+          </div>
         ` : ''}
         <div class="field">
           <label for="telephone">Téléphone</label>
@@ -136,6 +140,7 @@ function renderAuth() {
             nom: fd.get('nom'),
             prenom: fd.get('prenom'),
             telephone: fd.get('telephone'),
+            address: fd.get('address'),
           }),
         });
       } else {
@@ -334,6 +339,9 @@ function renderDashboardTabContent() {
         </div>
       </div>
       <div class="card-flip-note">${initials} · Carte n°${c.id.slice(0, 8).toUpperCase()}</div>
+      <a href="https://g.page/r/CRa_yp8Pnc2EEBM/review" target="_blank" rel="noopener" class="btn btn-outline" style="text-decoration:none;text-align:center;display:block;">
+        ⭐ Laisser un avis Google
+      </a>
     `;
     document.getElementById('loyalty-card').onclick = toggleCardFlip;
     return;
