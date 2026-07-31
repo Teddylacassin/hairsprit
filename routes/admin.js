@@ -73,6 +73,14 @@ router.post('/client/:id/redeem', requireAdminAuth, async (req, res) => {
   res.json({ client: clientPublic(updated) });
 });
 
+// PUT /api/admin/client/:id/reset-pin -> client forgot their PIN, let them set a new one
+router.put('/client/:id/reset-pin', requireAdminAuth, async (req, res) => {
+  const targetClient = await db.get('SELECT * FROM clients WHERE id = ?', [req.params.id]);
+  if (!targetClient) return res.status(404).json({ error: 'Client introuvable.' });
+  await db.run('UPDATE clients SET pin_hash = NULL WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+});
+
 // POST /api/admin/client/:id/reset -> reset points to 0 (reward claimed)
 router.post('/client/:id/reset', requireAdminAuth, async (req, res) => {
   const targetClient = await db.get('SELECT * FROM clients WHERE id = ?', [req.params.id]);
@@ -134,6 +142,25 @@ router.get('/clients', requireAdminAuth, async (req, res) => {
     rows = await db.all('SELECT * FROM clients ORDER BY created_at DESC');
   }
   res.json({ clients: rows.map(clientPublic) });
+});
+
+// POST /api/admin/clients -> manually create a client (walk-in, no app yet)
+router.post('/clients', requireAdminAuth, async (req, res) => {
+  const { nom, prenom, telephone, address } = req.body;
+  if (!nom || !prenom || !telephone) {
+    return res.status(400).json({ error: 'Nom, prénom et téléphone sont obligatoires.' });
+  }
+  const tel = String(telephone).replace(/[\s.\-()]/g, '');
+  const existing = await db.get('SELECT id FROM clients WHERE telephone = ?', [tel]);
+  if (existing) {
+    return res.status(409).json({ error: 'Un client existe déjà avec ce numéro.' });
+  }
+  const id = uuidv4();
+  const qrToken = uuidv4();
+  await db.run('INSERT INTO clients (id, nom, prenom, telephone, address, qr_token, points) VALUES (?,?,?,?,?,?,0)',
+    [id, nom.trim(), prenom.trim(), tel, (address || '').trim() || null, qrToken]);
+  const client = await db.get('SELECT * FROM clients WHERE id = ?', [id]);
+  res.json({ client: clientPublic(client) });
 });
 
 // GET /api/admin/client/:id -> single client detail + history
