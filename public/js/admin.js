@@ -102,6 +102,7 @@ const TABS = [
   { id: 'scanner', label: 'Scanner' },
   { id: 'clients', label: 'Clients' },
   { id: 'rewards', label: 'Récompenses' },
+  { id: 'services', label: 'Tarifs' },
   { id: 'bookings', label: 'Réservations' },
   { id: 'stats', label: 'Statistiques' },
 ];
@@ -142,6 +143,7 @@ function renderTabContent() {
   if (state.tab === 'scanner') return renderScannerTab(main);
   if (state.tab === 'clients') return renderClientsTab(main);
   if (state.tab === 'rewards') return renderRewardsTab(main);
+  if (state.tab === 'services') return renderServicesTab(main);
   if (state.tab === 'bookings') return renderBookingsTab(main);
   if (state.tab === 'stats') return renderStatsTab(main);
 }
@@ -384,6 +386,90 @@ async function renderRewardsTab(main) {
   };
 }
 
+/* ---------------- SERVICES (TARIFS) TAB ---------------- */
+async function renderServicesTab(main) {
+  main.innerHTML = `<div class="loading-spin"></div>`;
+  let services;
+  try {
+    const res = await api('/services');
+    services = res.services;
+  } catch (e) {
+    main.innerHTML = `<div class="error-msg">${e.message}</div>`;
+    return;
+  }
+  main.innerHTML = `
+    <div class="section-title" style="margin-top:0;">Tarifs</div>
+    <div class="rewards-admin-grid" id="services-list"></div>
+    <div class="section-title">Ajouter une prestation</div>
+    <form id="new-service-form">
+      <div class="field"><label>Nom</label><input name="name" required placeholder="Ex : Coupe classique" /></div>
+      <div class="field"><label>Prix (€)</label><input name="price" type="number" min="0" step="0.5" required /></div>
+      <div class="field"><label>Description</label><input name="description" placeholder="Détail de la prestation" /></div>
+      <button class="btn btn-outline" type="submit">Ajouter</button>
+    </form>
+  `;
+  const list = document.getElementById('services-list');
+  list.innerHTML = services.map(s => `
+    <div class="reward-admin-row" data-id="${s.id}">
+      <div class="grow">
+        <input class="edit-name" value="${s.name.replace(/"/g, '&quot;')}" style="width:100%;margin-bottom:6px;" />
+        <input class="edit-desc" value="${(s.description || '').replace(/"/g, '&quot;')}" style="width:100%;" />
+      </div>
+      <input class="edit-price" type="number" min="0" step="0.5" value="${s.price}" style="width:80px;" />
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--argent);">
+        <input class="edit-active" type="checkbox" ${s.active ? 'checked' : ''} /> Actif
+      </label>
+      <button class="btn btn-outline save-service" style="width:auto;padding:10px 14px;">Enregistrer</button>
+      <button class="btn btn-danger delete-service" style="width:auto;padding:10px 14px;">Supprimer</button>
+    </div>
+  `).join('') || `<div class="empty-state">Aucune prestation configurée.</div>`;
+
+  list.querySelectorAll('.save-service').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('.reward-admin-row');
+      const id = row.dataset.id;
+      try {
+        await api(`/services/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: row.querySelector('.edit-name').value,
+            description: row.querySelector('.edit-desc').value,
+            price: row.querySelector('.edit-price').value,
+            active: row.querySelector('.edit-active').checked,
+          }),
+        });
+        renderServicesTab(main);
+      } catch (e) { alert(e.message); }
+    };
+  });
+  list.querySelectorAll('.delete-service').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('.reward-admin-row');
+      if (!confirm('Supprimer cette prestation ?')) return;
+      try {
+        await api(`/services/${row.dataset.id}`, { method: 'DELETE' });
+        renderServicesTab(main);
+      } catch (e) { alert(e.message); }
+    };
+  });
+
+  document.getElementById('new-service-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api('/services', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: fd.get('name'),
+          price: fd.get('price'),
+          description: fd.get('description'),
+        }),
+      });
+      renderServicesTab(main);
+    } catch (err) { alert(err.message); }
+  };
+}
+
 /* ---------------- BOOKINGS TAB ---------------- */
 const WEEKDAYS = [
   { value: 1, label: 'Lun' },
@@ -507,6 +593,7 @@ async function renderBookingsTab(main) {
             <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
           </div>
           ${b.slot_datetime ? `<div style="font-family:var(--font-mono);font-size:14px;">${formatDate(b.slot_datetime)}</div>` : ''}
+          ${b.service_name ? `<div style="font-size:13.5px;color:var(--succes);">${b.service_name} · ${parseFloat(b.service_price).toFixed(2)}€</div>` : ''}
           <div style="font-size:13.5px;">${b.message || '—'}</div>
           <div style="color:var(--argent);font-size:12px;">Demande envoyée le ${formatDate(b.created_at)}</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
