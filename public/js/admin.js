@@ -295,7 +295,9 @@ async function renderClientsTab(main) {
             <tr data-client-id="${c.id}">
               <td>${c.prenom} ${c.nom}</td>
               <td>${c.telephone}</td>
-              <td style="color:var(--argent);font-size:12.5px;">${c.address || '—'}</td>
+              <td style="color:var(--argent);font-size:12.5px;">
+                ${c.address ? `${c.address} <button class="copy-address-btn" data-address="${c.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button>` : '—'}
+              </td>
               <td class="pts-cell">${c.points}</td>
               <td>${formatDate(c.created_at)}</td>
               <td><button class="btn btn-outline reset-pin-btn" style="width:auto;padding:7px 10px;font-size:11.5px;">Réinitialiser</button></td>
@@ -640,7 +642,7 @@ async function renderBookingsTab(main) {
             <div>
               <div style="font-weight:600;font-size:14.5px;">${b.prenom} ${b.nom}</div>
               <div style="color:var(--argent);font-size:12.5px;">${b.telephone}</div>
-              ${b.address ? `<div style="color:var(--argent);font-size:12px;">📍 ${b.address}</div>` : ''}
+              ${b.address ? `<div style="color:var(--argent);font-size:12px;">📍 ${b.address} <button class="copy-address-btn" data-address="${b.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button></div>` : ''}
             </div>
             <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
           </div>
@@ -853,5 +855,20 @@ async function renderStatsTab(main) {
     </div>
   `;
 }
+
+// Copie l'adresse dans le presse-papier, où qu'apparaisse le bouton dans l'app
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.copy-address-btn');
+  if (!btn) return;
+  const address = btn.dataset.address;
+  try {
+    await navigator.clipboard.writeText(address);
+    const original = btn.textContent;
+    btn.textContent = '✓';
+    setTimeout(() => { btn.textContent = original; }, 1200);
+  } catch (err) {
+    alert('Impossible de copier automatiquement. Adresse : ' + address);
+  }
+});
 
 init();
