@@ -77,6 +77,7 @@ async function initDb() {
   `);
   await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS slot_datetime TIMESTAMP;`);
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS address TEXT;`);
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS pin_hash TEXT;`);
   await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS service_id TEXT;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schedule_settings (
