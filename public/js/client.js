@@ -10,6 +10,8 @@ const state = {
   services: [],
   qrcode: null,
   authMode: 'login', // 'login' | 'register'
+  authStep: 'form', // 'form' | 'pin' | 'setup-pin'
+  pendingPhone: null,
   loading: false,
   error: null,
   cardFlipped: false,
@@ -80,7 +82,188 @@ async function loadClientData() {
 
 /* ---------------- AUTH SCREEN ---------------- */
 function renderAuth() {
-  const isRegister = state.authMode === 'register';
+  if (state.authMode === 'register') return renderAuthRegister();
+  if (state.authStep === 'pin') return renderAuthPin();
+  if (state.authStep === 'setup-pin') return renderAuthSetupPin();
+  return renderAuthPhone();
+}
+
+function renderAuthPhone() {
+  app.innerHTML = `
+    <div class="screen">
+      <div class="hero-auth">
+        <img src="/logo.jpg" alt="Hairsprit" class="hero-logo" />
+        <p>Carte de fidélité digitale</p>
+      </div>
+
+      ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
+
+      <form id="phone-form" style="margin-top:26px;">
+        <div class="field">
+          <label for="telephone">Téléphone</label>
+          <input id="telephone" name="telephone" type="tel" placeholder="06 12 34 56 78" required />
+        </div>
+        <button class="btn btn-primary" type="submit" ${state.loading ? 'disabled' : ''}>
+          ${state.loading ? '...' : 'Continuer'}
+        </button>
+      </form>
+
+      <div class="switch-mode">
+        Nouveau chez Hairsprit ? <button id="switch">Créer un compte</button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('switch').onclick = () => {
+    state.authMode = 'register';
+    state.error = null;
+    renderAuth();
+  };
+
+  document.getElementById('phone-form').onsubmit = async (e) => {
+    e.preventDefault();
+    state.error = null;
+    state.loading = true;
+    renderAuth();
+    const fd = new FormData(e.target);
+    const telephone = fd.get('telephone');
+    try {
+      const res = await api('/check-phone', { method: 'POST', body: JSON.stringify({ telephone }) });
+      state.pendingPhone = telephone;
+      state.authStep = res.needsPinSetup ? 'setup-pin' : 'pin';
+      state.loading = false;
+      renderAuth();
+    } catch (err) {
+      state.loading = false;
+      state.error = err.message;
+      renderAuth();
+    }
+  };
+}
+
+function renderAuthPin() {
+  app.innerHTML = `
+    <div class="screen">
+      <div class="hero-auth">
+        <img src="/logo.jpg" alt="Hairsprit" class="hero-logo" />
+        <p>Entrez votre code PIN</p>
+      </div>
+
+      ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
+
+      <form id="pin-form" style="margin-top:26px;">
+        <div class="field">
+          <label for="pin">Code PIN (4 chiffres)</label>
+          <input id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" required autofocus />
+        </div>
+        <button class="btn btn-primary" type="submit" ${state.loading ? 'disabled' : ''}>
+          ${state.loading ? '...' : 'Se connecter'}
+        </button>
+        <button class="btn btn-ghost" type="button" id="back-btn" style="margin-top:10px;">← Changer de numéro</button>
+      </form>
+    </div>
+  `;
+
+  document.getElementById('back-btn').onclick = () => {
+    state.authStep = 'form';
+    state.error = null;
+    renderAuth();
+  };
+
+  document.getElementById('pin-form').onsubmit = async (e) => {
+    e.preventDefault();
+    state.error = null;
+    state.loading = true;
+    renderAuth();
+    const fd = new FormData(e.target);
+    try {
+      const res = await api('/login', {
+        method: 'POST',
+        body: JSON.stringify({ telephone: state.pendingPhone, pin: fd.get('pin') }),
+      });
+      saveToken(res.token);
+      state.client = res.client;
+      await loadClientData();
+      state.loading = false;
+      state.authStep = 'form';
+      renderDashboard();
+    } catch (err) {
+      state.loading = false;
+      state.error = err.message;
+      renderAuth();
+    }
+  };
+}
+
+function renderAuthSetupPin() {
+  app.innerHTML = `
+    <div class="screen">
+      <div class="hero-auth">
+        <img src="/logo.jpg" alt="Hairsprit" class="hero-logo" />
+        <p>Créez votre code PIN</p>
+      </div>
+      <div class="sub" style="text-align:center;color:var(--argent);font-size:13px;margin-bottom:10px;">
+        C'est la première fois qu'on ajoute cette sécurité. Choisissez un code à 4 chiffres pour protéger votre compte.
+      </div>
+
+      ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
+
+      <form id="setup-pin-form" style="margin-top:16px;">
+        <div class="field">
+          <label for="pin">Nouveau code PIN (4 chiffres)</label>
+          <input id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" required autofocus />
+        </div>
+        <div class="field">
+          <label for="pin2">Confirmez le code PIN</label>
+          <input id="pin2" name="pin2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" required />
+        </div>
+        <button class="btn btn-primary" type="submit" ${state.loading ? 'disabled' : ''}>
+          ${state.loading ? '...' : 'Valider'}
+        </button>
+        <button class="btn btn-ghost" type="button" id="back-btn" style="margin-top:10px;">← Changer de numéro</button>
+      </form>
+    </div>
+  `;
+
+  document.getElementById('back-btn').onclick = () => {
+    state.authStep = 'form';
+    state.error = null;
+    renderAuth();
+  };
+
+  document.getElementById('setup-pin-form').onsubmit = async (e) => {
+    e.preventDefault();
+    state.error = null;
+    const fd = new FormData(e.target);
+    const pin = fd.get('pin');
+    const pin2 = fd.get('pin2');
+    if (pin !== pin2) {
+      state.error = 'Les deux codes ne correspondent pas.';
+      renderAuth();
+      return;
+    }
+    state.loading = true;
+    renderAuth();
+    try {
+      const res = await api('/set-pin', {
+        method: 'POST',
+        body: JSON.stringify({ telephone: state.pendingPhone, pin }),
+      });
+      saveToken(res.token);
+      state.client = res.client;
+      await loadClientData();
+      state.loading = false;
+      state.authStep = 'form';
+      renderDashboard();
+    } catch (err) {
+      state.loading = false;
+      state.error = err.message;
+      renderAuth();
+    }
+  };
+}
+
+function renderAuthRegister() {
   app.innerHTML = `
     <div class="screen">
       <div class="hero-auth">
@@ -91,39 +274,39 @@ function renderAuth() {
       ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
 
       <form id="auth-form" style="margin-top:26px;">
-        ${isRegister ? `
-          <div class="field">
-            <label for="prenom">Prénom</label>
-            <input id="prenom" name="prenom" placeholder="Karim" required />
-          </div>
-          <div class="field">
-            <label for="nom">Nom</label>
-            <input id="nom" name="nom" placeholder="Haddad" required />
-          </div>
-          <div class="field">
-            <label for="address">Adresse (optionnel, pour prestation à domicile)</label>
-            <input id="address" name="address" placeholder="12 rue des Lilas, 75011 Paris" />
-          </div>
-        ` : ''}
+        <div class="field">
+          <label for="prenom">Prénom</label>
+          <input id="prenom" name="prenom" placeholder="Karim" required />
+        </div>
+        <div class="field">
+          <label for="nom">Nom</label>
+          <input id="nom" name="nom" placeholder="Haddad" required />
+        </div>
+        <div class="field">
+          <label for="address">Adresse (optionnel, pour prestation à domicile)</label>
+          <input id="address" name="address" placeholder="12 rue des Lilas, 75011 Paris" />
+        </div>
         <div class="field">
           <label for="telephone">Téléphone</label>
           <input id="telephone" name="telephone" type="tel" placeholder="06 12 34 56 78" required />
         </div>
+        <div class="field">
+          <label for="pin">Code PIN (4 chiffres, pour protéger votre compte)</label>
+          <input id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" required />
+        </div>
         <button class="btn btn-primary" type="submit" ${state.loading ? 'disabled' : ''}>
-          ${state.loading ? '...' : (isRegister ? 'Créer mon compte' : 'Se connecter')}
+          ${state.loading ? '...' : 'Créer mon compte'}
         </button>
       </form>
 
       <div class="switch-mode">
-        ${isRegister
-          ? `Déjà client ? <button id="switch">Se connecter</button>`
-          : `Nouveau chez Hairsprit ? <button id="switch">Créer un compte</button>`}
+        Déjà client ? <button id="switch">Se connecter</button>
       </div>
     </div>
   `;
 
   document.getElementById('switch').onclick = () => {
-    state.authMode = isRegister ? 'login' : 'register';
+    state.authMode = 'login';
     state.error = null;
     renderAuth();
   };
@@ -135,23 +318,16 @@ function renderAuth() {
     renderAuth();
     const fd = new FormData(e.target);
     try {
-      let res;
-      if (isRegister) {
-        res = await api('/register', {
-          method: 'POST',
-          body: JSON.stringify({
-            nom: fd.get('nom'),
-            prenom: fd.get('prenom'),
-            telephone: fd.get('telephone'),
-            address: fd.get('address'),
-          }),
-        });
-      } else {
-        res = await api('/login', {
-          method: 'POST',
-          body: JSON.stringify({ telephone: fd.get('telephone') }),
-        });
-      }
+      const res = await api('/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          nom: fd.get('nom'),
+          prenom: fd.get('prenom'),
+          telephone: fd.get('telephone'),
+          address: fd.get('address'),
+          pin: fd.get('pin'),
+        }),
+      });
       saveToken(res.token);
       state.client = res.client;
       await loadClientData();
