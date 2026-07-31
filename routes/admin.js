@@ -180,6 +180,42 @@ router.delete('/rewards/:id', requireAdminAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// SERVICES (TARIFS) CRUD
+router.get('/services', requireAdminAuth, async (req, res) => {
+  const services = await db.all('SELECT * FROM services ORDER BY sort_order ASC');
+  res.json({ services });
+});
+
+router.post('/services', requireAdminAuth, async (req, res) => {
+  const { name, price, description } = req.body;
+  if (!name || price === undefined || price === '') return res.status(400).json({ error: 'Nom et prix requis.' });
+  const id = uuidv4();
+  const maxOrderRow = await db.get('SELECT COALESCE(MAX(sort_order),0) as m FROM services');
+  const maxOrder = parseInt(maxOrderRow.m, 10);
+  await db.run('INSERT INTO services (id, name, price, description, sort_order) VALUES (?,?,?,?,?)',
+    [id, name.trim(), parseFloat(price), (description || '').trim(), maxOrder + 1]);
+  res.json({ ok: true, id });
+});
+
+router.put('/services/:id', requireAdminAuth, async (req, res) => {
+  const service = await db.get('SELECT * FROM services WHERE id = ?', [req.params.id]);
+  if (!service) return res.status(404).json({ error: 'Prestation introuvable.' });
+  const { name, price, description, active } = req.body;
+  await db.run('UPDATE services SET name=?, price=?, description=?, active=? WHERE id=?', [
+    name !== undefined ? name.trim() : service.name,
+    price !== undefined ? parseFloat(price) : service.price,
+    description !== undefined ? description.trim() : service.description,
+    active !== undefined ? (active ? 1 : 0) : service.active,
+    req.params.id,
+  ]);
+  res.json({ ok: true });
+});
+
+router.delete('/services/:id', requireAdminAuth, async (req, res) => {
+  await db.run('DELETE FROM services WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+});
+
 // GET /api/admin/schedule -> get schedule settings
 router.get('/schedule', requireAdminAuth, async (req, res) => {
   const settings = await db.get('SELECT * FROM schedule_settings WHERE id = ?', ['default']);
@@ -280,8 +316,11 @@ router.delete('/blocked-slots/:id', requireAdminAuth, async (req, res) => {
 // GET /api/admin/bookings
 router.get('/bookings', requireAdminAuth, async (req, res) => {
   const rows = await db.all(`
-    SELECT b.id, b.message, b.status, b.created_at, b.slot_datetime, c.nom, c.prenom, c.telephone, c.address
-    FROM bookings b JOIN clients c ON c.id = b.client_id
+    SELECT b.id, b.message, b.status, b.created_at, b.slot_datetime, c.nom, c.prenom, c.telephone, c.address,
+           s.name AS service_name, s.price AS service_price
+    FROM bookings b
+    JOIN clients c ON c.id = b.client_id
+    LEFT JOIN services s ON s.id = b.service_id
     ORDER BY b.created_at DESC
   `);
   res.json({ bookings: rows });
