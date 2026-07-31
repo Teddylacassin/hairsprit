@@ -13,6 +13,7 @@ function clientPublic(client) {
     prenom: client.prenom,
     telephone: client.telephone,
     address: client.address,
+    admin_notes: client.admin_notes,
     points: client.points,
     created_at: client.created_at,
   };
@@ -71,6 +72,15 @@ router.post('/client/:id/redeem', requireAdminAuth, async (req, res) => {
 
   const updated = await db.get('SELECT * FROM clients WHERE id = ?', [targetClient.id]);
   res.json({ client: clientPublic(updated) });
+});
+
+// PUT /api/admin/client/:id/notes -> save private notes about a client
+router.put('/client/:id/notes', requireAdminAuth, async (req, res) => {
+  const targetClient = await db.get('SELECT * FROM clients WHERE id = ?', [req.params.id]);
+  if (!targetClient) return res.status(404).json({ error: 'Client introuvable.' });
+  const { notes } = req.body;
+  await db.run('UPDATE clients SET admin_notes = ? WHERE id = ?', [(notes || '').trim().slice(0, 1000) || null, req.params.id]);
+  res.json({ ok: true });
 });
 
 // PUT /api/admin/client/:id/reset-pin -> client forgot their PIN, let them set a new one
@@ -343,7 +353,7 @@ router.delete('/blocked-slots/:id', requireAdminAuth, async (req, res) => {
 // GET /api/admin/bookings
 router.get('/bookings', requireAdminAuth, async (req, res) => {
   const rows = await db.all(`
-    SELECT b.id, b.message, b.status, b.created_at, b.slot_datetime, c.nom, c.prenom, c.telephone, c.address,
+    SELECT b.id, b.message, b.status, b.created_at, b.slot_datetime, c.nom, c.prenom, c.telephone, c.address, c.admin_notes,
            s.name AS service_name, s.price AS service_price
     FROM bookings b
     JOIN clients c ON c.id = b.client_id
