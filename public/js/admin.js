@@ -268,28 +268,80 @@ async function renderClientsTab(main) {
     return;
   }
   main.innerHTML = `
-    <div class="section-title" style="margin-top:0;">Liste des clients (${state.clients.length})</div>
+    <div class="section-title" style="margin-top:0;">Ajouter un client (sans app pour l'instant)</div>
+    <div class="scanner-box" style="max-width:100%;">
+      <form id="new-client-form">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <div class="field" style="flex:1;min-width:140px;"><label>Prénom</label><input name="prenom" required /></div>
+          <div class="field" style="flex:1;min-width:140px;"><label>Nom</label><input name="nom" required /></div>
+        </div>
+        <div class="field"><label>Téléphone</label><input name="telephone" type="tel" required placeholder="06 12 34 56 78" /></div>
+        <div class="field"><label>Adresse (optionnel)</label><input name="address" placeholder="12 rue des Lilas, 75011 Paris" /></div>
+        <button class="btn btn-outline" type="submit">Ajouter ce client</button>
+      </form>
+      <div id="new-client-msg"></div>
+    </div>
+
+    <div class="section-title">Liste des clients (${state.clients.length})</div>
     <div class="search-row">
       <input id="search-input" placeholder="Rechercher par nom ou téléphone..." value="${state.clientSearch}" />
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Client</th><th>Téléphone</th><th>Adresse</th><th>Points</th><th>Membre depuis</th></tr></thead>
+        <thead><tr><th>Client</th><th>Téléphone</th><th>Adresse</th><th>Points</th><th>Membre depuis</th><th>PIN</th></tr></thead>
         <tbody>
-          ${state.clients.length === 0 ? `<tr><td colspan="5" style="text-align:center;color:var(--argent);">Aucun client trouvé.</td></tr>` : ''}
+          ${state.clients.length === 0 ? `<tr><td colspan="6" style="text-align:center;color:var(--argent);">Aucun client trouvé.</td></tr>` : ''}
           ${state.clients.map(c => `
-            <tr>
+            <tr data-client-id="${c.id}">
               <td>${c.prenom} ${c.nom}</td>
               <td>${c.telephone}</td>
               <td style="color:var(--argent);font-size:12.5px;">${c.address || '—'}</td>
               <td class="pts-cell">${c.points}</td>
               <td>${formatDate(c.created_at)}</td>
+              <td><button class="btn btn-outline reset-pin-btn" style="width:auto;padding:7px 10px;font-size:11.5px;">Réinitialiser</button></td>
             </tr>
           `).join('')}
         </tbody>
       </table>
     </div>
   `;
+  main.querySelectorAll('.reset-pin-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('[data-client-id]');
+      const id = row.dataset.clientId;
+      if (!confirm('Réinitialiser le code PIN de ce client ? Il devra en recréer un à sa prochaine connexion.')) return;
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        await api(`/client/${id}/reset-pin`, { method: 'PUT' });
+        btn.textContent = '✓ Fait';
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+        btn.textContent = 'Réinitialiser';
+      }
+    };
+  });
+  document.getElementById('new-client-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const msg = document.getElementById('new-client-msg');
+    try {
+      await api('/clients', {
+        method: 'POST',
+        body: JSON.stringify({
+          prenom: fd.get('prenom'),
+          nom: fd.get('nom'),
+          telephone: fd.get('telephone'),
+          address: fd.get('address'),
+        }),
+      });
+      msg.innerHTML = `<div class="success-msg">✓ Client ajouté avec succès !</div>`;
+      renderClientsTab(main);
+    } catch (err) {
+      msg.innerHTML = `<div class="error-msg">${err.message}</div>`;
+    }
+  };
   const input = document.getElementById('search-input');
   let timeout;
   input.oninput = (e) => {
