@@ -296,7 +296,7 @@ async function renderClientsTab(main) {
               <td>${c.prenom} ${c.nom}</td>
               <td>${c.telephone}</td>
               <td style="color:var(--argent);font-size:12.5px;">
-                ${c.address ? `${c.address} <button class="copy-address-btn" data-address="${c.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button>` : '—'}
+                ${c.address ? `${c.address} <button class="copy-address-btn" data-address="${c.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button> <a href="https://www.waze.com/ul?q=${encodeURIComponent(c.address)}&navigate=yes" target="_blank" rel="noopener" title="Ouvrir dans Waze" style="text-decoration:none;padding:2px 4px;">🚗</a>` : '—'}
               </td>
               <td class="pts-cell">${c.points}</td>
               <td>${formatDate(c.created_at)}</td>
@@ -642,7 +642,7 @@ async function renderBookingsTab(main) {
             <div>
               <div style="font-weight:600;font-size:14.5px;">${b.prenom} ${b.nom}</div>
               <div style="color:var(--argent);font-size:12.5px;">${b.telephone}</div>
-              ${b.address ? `<div style="color:var(--argent);font-size:12px;">📍 ${b.address} <button class="copy-address-btn" data-address="${b.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button></div>` : ''}
+              ${b.address ? `<div style="color:var(--argent);font-size:12px;">📍 ${b.address} <button class="copy-address-btn" data-address="${b.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button> <a href="https://www.waze.com/ul?q=${encodeURIComponent(b.address)}&navigate=yes" target="_blank" rel="noopener" title="Ouvrir dans Waze" style="text-decoration:none;padding:2px 4px;">🚗</a></div>` : ''}
             </div>
             <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
           </div>
