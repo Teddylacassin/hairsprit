@@ -399,11 +399,13 @@ async function renderBookingsTab(main) {
   main.innerHTML = `<div class="loading-spin"></div>`;
   let schedule;
   let blockedDates;
+  let blockedSlots;
   try {
-    const [bookingsRes, scheduleRes, blockedRes] = await Promise.all([api('/bookings'), api('/schedule'), api('/blocked-dates')]);
+    const [bookingsRes, scheduleRes, blockedRes, blockedSlotsRes] = await Promise.all([api('/bookings'), api('/schedule'), api('/blocked-dates'), api('/blocked-slots')]);
     state.bookings = bookingsRes.bookings;
     schedule = scheduleRes.settings;
     blockedDates = blockedRes.blockedDates;
+    blockedSlots = blockedSlotsRes.blockedSlots;
   } catch (e) {
     main.innerHTML = `<div class="error-msg">${e.message}</div>`;
     return;
@@ -466,6 +468,29 @@ async function renderBookingsTab(main) {
           `).join('')}
         </div>
       ` : `<div class="empty-state" style="margin-top:14px;">Aucune date bloquée pour le moment.</div>`}
+    </div>
+
+    <div class="section-title">Bloquer une heure précise (rdv perso, etc.)</div>
+    <div class="scanner-box" style="max-width:100%;">
+      <div class="field" style="max-width:220px;">
+        <label>Choisir un jour</label>
+        <input type="date" id="slot-date-picker" />
+      </div>
+      <div id="day-slots-zone" style="margin-top:10px;"></div>
+      ${blockedSlots.length > 0 ? `
+        <div class="section-title" style="margin-top:20px;">Heures actuellement bloquées</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${blockedSlots.map(bs => `
+            <div class="history-item" data-blocked-slot-id="${bs.id}">
+              <div>
+                <div>${formatDate(bs.slot_datetime)}</div>
+                ${bs.reason ? `<div class="date">${bs.reason}</div>` : ''}
+              </div>
+              <button class="btn btn-danger unblock-slot-btn" style="width:auto;padding:8px 12px;font-size:12.5px;">Débloquer</button>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
     </div>
 
     <div class="section-title">Demandes de réservation</div>
@@ -560,6 +585,73 @@ async function renderBookingsTab(main) {
       }
     };
   });
+
+  main.querySelectorAll('.unblock-slot-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('[data-blocked-slot-id]');
+      const id = row.dataset.blockedSlotId;
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        await api(`/blocked-slots/${id}`, { method: 'DELETE' });
+        renderBookingsTab(main);
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+        btn.textContent = 'Débloquer';
+      }
+    };
+  });
+
+  main.querySelector('#slot-date-picker').onchange = async (e) => {
+    const zone = main.querySelector('#day-slots-zone');
+    const date = e.target.value;
+    if (!date) { zone.innerHTML = ''; return; }
+    zone.innerHTML = `<div class="loading-spin"></div>`;
+    try {
+      const res = await api(`/slots-for-date/${date}`);
+      if (res.slots.length === 0) {
+        zone.innerHTML = `<div class="empty-state">Aucun créneau ce jour (jour fermé ou horaires non définis).</div>`;
+        return;
+      }
+      zone.innerHTML = `
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          ${res.slots.map(s => `
+            <button type="button" class="btn ${s.blocked ? 'btn-danger' : (s.taken ? 'btn-outline' : 'btn-outline')} slot-pick-btn"
+              data-datetime="${s.datetime}" data-blocked="${s.blocked}" data-taken="${s.taken}"
+              ${s.taken ? 'disabled' : ''}
+              style="width:auto;padding:10px 14px;font-size:13px;${s.taken ? 'opacity:0.4;' : ''}">
+              ${new Date(s.datetime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+              ${s.taken ? ' (réservé)' : s.blocked ? ' (bloqué)' : ''}
+            </button>
+          `).join('')}
+        </div>
+      `;
+      zone.querySelectorAll('.slot-pick-btn').forEach(btn => {
+        btn.onclick = async () => {
+          const datetime = btn.dataset.datetime;
+          const isBlocked = btn.dataset.blocked === 'true';
+          if (isBlocked) {
+            try {
+              const res2 = await api('/blocked-slots');
+              const entry = res2.blockedSlots.find(bs => new Date(bs.slot_datetime).toISOString() === datetime);
+              if (entry) await api(`/blocked-slots/${entry.id}`, { method: 'DELETE' });
+              renderBookingsTab(main);
+            } catch (err) { alert(err.message); }
+          } else {
+            const reason = prompt('Raison (optionnel) :', '');
+            if (reason === null) return;
+            try {
+              await api('/blocked-slots', { method: 'POST', body: JSON.stringify({ slot_datetime: datetime, reason }) });
+              renderBookingsTab(main);
+            } catch (err) { alert(err.message); }
+          }
+        };
+      });
+    } catch (err) {
+      zone.innerHTML = `<div class="error-msg">${err.message}</div>`;
+    }
+  };
 
   async function updateStatus(id, status) {
     try {
