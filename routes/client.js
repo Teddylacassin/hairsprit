@@ -130,6 +130,9 @@ router.get('/available-slots', requireClientAuth, async (req, res) => {
   );
   const taken = new Set(takenRows.map(r => new Date(r.slot_datetime).toISOString()));
 
+  const blockedSlotRows = await db.all('SELECT slot_datetime FROM blocked_slots');
+  blockedSlotRows.forEach(r => taken.add(new Date(r.slot_datetime).toISOString()));
+
   const blockedRows = await db.all('SELECT blocked_date FROM blocked_dates');
   const blockedDates = new Set(blockedRows.map(r => new Date(r.blocked_date).toISOString().slice(0, 10)));
 
