@@ -1,33 +1,28 @@
-const API = '/api/admin';
+const API = '/api/client';
 const app = document.getElementById('app');
 
 const state = {
-  token: localStorage.getItem('hairsprit_admin_token') || null,
-  username: localStorage.getItem('hairsprit_admin_user') || null,
-  tab: 'scanner',
-  error: null,
-  loading: false,
-  scannedClient: null,
-  scannerActive: false,
-  html5QrCode: null,
-  clients: [],
-  clientSearch: '',
+  token: localStorage.getItem('hairsprit_token') || null,
+  client: null,
   rewards: [],
+  history: [],
   bookings: [],
-  stats: null,
+  services: [],
+  qrcode: null,
+  authMode: 'login', // 'login' | 'register'
+  loading: false,
+  error: null,
+  cardFlipped: false,
+  dashboardTab: 'card',
 };
 
-function saveSession(token, username) {
+function saveToken(token) {
   state.token = token;
-  state.username = username;
-  localStorage.setItem('hairsprit_admin_token', token);
-  localStorage.setItem('hairsprit_admin_user', username);
+  localStorage.setItem('hairsprit_token', token);
 }
-function clearSession() {
+function clearToken() {
   state.token = null;
-  state.username = null;
-  localStorage.removeItem('hairsprit_admin_token');
-  localStorage.removeItem('hairsprit_admin_user');
+  localStorage.removeItem('hairsprit_token');
 }
 
 async function api(path, options = {}) {
@@ -39,6 +34,432 @@ async function api(path, options = {}) {
   return data;
 }
 
+function icon(name) {
+  const icons = {
+    scissors: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.5 8.5 19 19M8.5 15.5 19 5"/></svg>',
+    logout: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
+    calendar: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+    pin: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>',
+  };
+  return icons[name] || '';
+}
+
+/* ---------------- INIT ---------------- */
+async function init() {
+  if (state.token) {
+    try {
+      await loadClientData();
+      renderDashboard();
+      return;
+    } catch (e) {
+      clearToken();
+    }
+  }
+  renderAuth();
+}
+
+// Rafraîchit automatiquement les données quand l'app repasse au premier plan
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && state.token && state.client) {
+    try {
+      await loadClientData();
+      renderDashboard();
+    } catch (e) { /* silent */ }
+  }
+});
+
+async function loadClientData() {
+  const meRes = await api('/me');
+  state.client = meRes.client;
+  const [rewardsRes, historyRes, bookingsRes, servicesRes] = await Promise.all([api('/rewards'), api('/history'), api('/bookings'), api('/services')]);
+  state.rewards = rewardsRes.rewards;
+  state.history = historyRes.visits;
+  state.bookings = bookingsRes.bookings;
+  state.services = servicesRes.services;
+}
+
+/* ---------------- AUTH SCREEN ---------------- */
+function renderAuth() {
+  const isRegister = state.authMode === 'register';
+  app.innerHTML = `
+    <div class="screen">
+      <div class="hero-auth">
+        <img src="/logo.jpg" alt="Hairsprit" class="hero-logo" />
+        <p>Carte de fidélité digitale</p>
+      </div>
+
+      ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
+
+      <form id="auth-form" style="margin-top:26px;">
+        ${isRegister ? `
+          <div class="field">
+            <label for="prenom">Prénom</label>
+            <input id="prenom" name="prenom" placeholder="Karim" required />
+          </div>
+          <div class="field">
+            <label for="nom">Nom</label>
+            <input id="nom" name="nom" placeholder="Haddad" required />
+          </div>
+          <div class="field">
+            <label for="address">Adresse (optionnel, pour prestation à domicile)</label>
+            <input id="address" name="address" placeholder="12 rue des Lilas, 75011 Paris" />
+          </div>
+        ` : ''}
+        <div class="field">
+          <label for="telephone">Téléphone</label>
+          <input id="telephone" name="telephone" type="tel" placeholder="06 12 34 56 78" required />
+        </div>
+        <button class="btn btn-primary" type="submit" ${state.loading ? 'disabled' : ''}>
+          ${state.loading ? '...' : (isRegister ? 'Créer mon compte' : 'Se connecter')}
+        </button>
+      </form>
+
+      <div class="switch-mode">
+        ${isRegister
+          ? `Déjà client ? <button id="switch">Se connecter</button>`
+          : `Nouveau chez Hairsprit ? <button id="switch">Créer un compte</button>`}
+      </div>
+    </div>
+  `;
+
+  document.getElementById('switch').onclick = () => {
+    state.authMode = isRegister ? 'login' : 'register';
+    state.error = null;
+    renderAuth();
+  };
+
+  document.getElementById('auth-form').onsubmit = async (e) => {
+    e.preventDefault();
+    state.error = null;
+    state.loading = true;
+    renderAuth();
+    const fd = new FormData(e.target);
+    try {
+      let res;
+      if (isRegister) {
+        res = await api('/register', {
+          method: 'POST',
+          body: JSON.stringify({
+            nom: fd.get('nom'),
+            prenom: fd.get('prenom'),
+            telephone: fd.get('telephone'),
+            address: fd.get('address'),
+          }),
+        });
+      } else {
+        res = await api('/login', {
+          method: 'POST',
+          body: JSON.stringify({ telephone: fd.get('telephone') }),
+        });
+      }
+      saveToken(res.token);
+      state.client = res.client;
+      await loadClientData();
+      state.loading = false;
+      renderDashboard();
+    } catch (err) {
+      state.loading = false;
+      state.error = err.message;
+      renderAuth();
+    }
+  };
+}
+
+/* ---------------- DASHBOARD ---------------- */
+async function toggleCardFlip() {
+  state.cardFlipped = !state.cardFlipped;
+  if (state.cardFlipped && !state.qrcode) {
+    try {
+      const res = await api('/qrcode');
+      state.qrcode = res.qrcode;
+    } catch (e) { /* silent */ }
+  }
+  renderDashboard();
+}
+
+function unlockedRewards() {
+  return state.rewards.filter(r => state.client.points >= r.points_required);
+}
+
+function checkNewlyUnlockedRewards(client, rewards) {
+  const key = `hairsprit_celebrated_${client.id}`;
+  const previousMax = parseInt(localStorage.getItem(key) || '0', 10);
+  const newlyUnlocked = rewards.filter(r => r.points_required <= client.points && r.points_required > previousMax);
+  localStorage.setItem(key, String(client.points));
+  return newlyUnlocked;
+}
+
+function checkBookingStatusChanges(client, bookings) {
+  const key = `hairsprit_booking_status_${client.id}`;
+  const previousMap = JSON.parse(localStorage.getItem(key) || '{}');
+  const changed = [];
+  bookings.forEach(b => {
+    const prevStatus = previousMap[b.id];
+    if ((b.status === 'confirme' || b.status === 'annule') && prevStatus !== b.status) {
+      changed.push(b);
+    }
+  });
+  const newMap = {};
+  bookings.forEach(b => { newMap[b.id] = b.status; });
+  localStorage.setItem(key, JSON.stringify(newMap));
+  return changed;
+}
+
+function showCelebration(rewards) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'sheet-backdrop';
+  backdrop.innerHTML = `
+    <div class="sheet" style="text-align:center;">
+      <div style="font-size:40px;margin-bottom:8px;">🎉</div>
+      <h3>Récompense débloquée !</h3>
+      <div class="sub">Félicitations, vous pouvez maintenant profiter de :</div>
+      ${rewards.map(r => `
+        <div class="reward-card unlocked" style="margin-bottom:10px;text-align:left;">
+          <div>
+            <div class="reward-name">${r.name}</div>
+            <div class="reward-desc">${r.description || ''}</div>
+          </div>
+          <span class="badge-unlocked">Débloqué</span>
+        </div>
+      `).join('')}
+      <button class="btn btn-primary" id="close-celebration" style="margin-top:8px;">Super, merci !</button>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+  backdrop.querySelector('#close-celebration').onclick = () => backdrop.remove();
+}
+
+function showBookingNotification(bookings) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'sheet-backdrop';
+  backdrop.innerHTML = `
+    <div class="sheet" style="text-align:center;">
+      <div style="font-size:40px;margin-bottom:8px;">${bookings[0].status === 'confirme' ? '✅' : 'ℹ️'}</div>
+      <h3>${bookings.length > 1 ? 'Mise à jour de vos réservations' : (bookings[0].status === 'confirme' ? 'Réservation confirmée !' : 'Réservation annulée')}</h3>
+      ${bookings.map(b => `
+        <div class="history-item" style="text-align:left;margin-top:10px;">
+          <div>
+            <div>${b.slot_datetime ? formatDate(b.slot_datetime) : (b.message || 'Votre demande')}</div>
+          </div>
+          <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
+        </div>
+      `).join('')}
+      <button class="btn btn-primary" id="close-booking-notif" style="margin-top:14px;">OK</button>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+  backdrop.querySelector('#close-booking-notif').onclick = () => backdrop.remove();
+}
+
+const DASHBOARD_TABS = [
+  { id: 'card', label: 'Carte' },
+  { id: 'services', label: 'Tarifs' },
+  { id: 'rewards', label: 'Récompenses' },
+  { id: 'bookings', label: 'Réservations' },
+  { id: 'history', label: 'Historique' },
+];
+
+function renderDashboard() {
+  const c = state.client;
+  const newlyUnlocked = checkNewlyUnlockedRewards(c, state.rewards);
+  const bookingChanges = checkBookingStatusChanges(c, state.bookings);
+
+  app.innerHTML = `
+    <div class="topbar">
+      <div class="brand">
+        <img src="/logo.jpg" alt="Hairsprit" class="brand-logo" />
+        <span class="tag">Membre</span>
+      </div>
+      <div style="display:flex;">
+        <button class="icon-btn" id="edit-address-btn" title="Modifier mon adresse" style="margin-right:8px;">${icon('pin')}</button>
+        <button class="icon-btn" id="logout-btn" title="Déconnexion">${icon('logout')}</button>
+      </div>
+    </div>
+
+    <div class="admin-nav" style="padding:0 20px;margin-bottom:6px;flex-direction:row;overflow-x:auto;">
+      ${DASHBOARD_TABS.map(t => `<button data-tab="${t.id}" class="${state.dashboardTab === t.id ? 'active' : ''}" style="white-space:nowrap;">${t.label}</button>`).join('')}
+    </div>
+
+    <div class="screen" id="dashboard-content"></div>
+
+    <div class="book-cta">
+      <button class="btn btn-primary" id="book-btn">${icon('calendar')} Réserver une coupe</button>
+    </div>
+  `;
+
+  document.querySelectorAll('.admin-nav button').forEach(btn => {
+    btn.onclick = () => {
+      state.dashboardTab = btn.dataset.tab;
+      renderDashboard();
+    };
+  });
+  document.getElementById('edit-address-btn').onclick = openAddressSheet;
+  document.getElementById('logout-btn').onclick = () => {
+    clearToken();
+    state.client = null;
+    state.qrcode = null;
+    state.cardFlipped = false;
+    renderAuth();
+  };
+  document.getElementById('book-btn').onclick = openBookingSheet;
+
+  renderDashboardTabContent();
+
+  if (bookingChanges.length > 0) {
+    showBookingNotification(bookingChanges);
+  } else if (newlyUnlocked.length > 0) {
+    showCelebration(newlyUnlocked);
+  }
+}
+
+function renderDashboardTabContent() {
+  const c = state.client;
+  const zone = document.getElementById('dashboard-content');
+  if (!zone) return;
+
+  if (state.dashboardTab === 'card') {
+    const initials = `${c.prenom[0] || ''}${c.nom[0] || ''}`.toUpperCase();
+    zone.innerHTML = `
+      <div class="card-stage">
+        <div class="loyalty-card ${state.cardFlipped ? 'flipped' : ''}" id="loyalty-card">
+          <div class="card-face front">
+            <div class="card-top-row">
+              <span class="card-logo">HAIRSPRIT</span>
+              <div class="card-chip">${icon('scissors')}</div>
+            </div>
+            <div>
+              <div class="card-name">${c.prenom} ${c.nom}</div>
+            </div>
+            <div class="card-bottom-row">
+              <div>
+                <div class="card-points-label">Points fidélité</div>
+                <div class="card-points-value">${c.points}</div>
+              </div>
+              <div class="card-hint">Toucher pour<br>le QR code →</div>
+            </div>
+          </div>
+          <div class="card-face back">
+            ${state.qrcode ? `<img src="${state.qrcode}" alt="QR code fidélité" />` : `<div class="loading-spin"></div>`}
+            <div class="back-label">Présentez ce code à votre barbier</div>
+          </div>
+        </div>
+      </div>
+      <div class="card-flip-note">${initials} · Carte n°${c.id.slice(0, 8).toUpperCase()}</div>
+      <a href="https://g.page/r/CRa_yp8Pnc2EEBM/review" target="_blank" rel="noopener" class="btn btn-outline" style="text-decoration:none;text-align:center;display:block;">
+        ⭐ Laisser un avis Google
+      </a>
+    `;
+    document.getElementById('loyalty-card').onclick = toggleCardFlip;
+    return;
+  }
+
+  if (state.dashboardTab === 'services') {
+    zone.innerHTML = `
+      <div class="section-title" style="margin-top:0;">Tarifs</div>
+      ${state.services.length === 0 ? `<div class="empty-state">Aucun tarif renseigné pour le moment.</div>` : ''}
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${state.services.map(s => `
+          <div class="history-item">
+            <div>
+              <div>${s.name}</div>
+              ${s.description ? `<div class="date">${s.description}</div>` : ''}
+            </div>
+            <div class="pts">${parseFloat(s.price).toFixed(2)}€</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    return;
+  }
+
+  if (state.dashboardTab === 'rewards') {
+    zone.innerHTML = `
+      <div class="section-title" style="margin-top:0;">Récompenses</div>
+      <div class="rewards-grid">
+        ${state.rewards.length === 0 ? `<div class="empty-state">Aucune récompense disponible pour le moment.</div>` : ''}
+        ${state.rewards.map(r => {
+          const unlocked = c.points >= r.points_required;
+          return `
+            <div class="reward-card ${unlocked ? 'unlocked' : ''}">
+              <div>
+                <div class="reward-name">${r.name}</div>
+                <div class="reward-desc">${r.description || ''}</div>
+              </div>
+              ${unlocked
+                ? `<span class="badge-unlocked">Débloqué</span>`
+                : `<span class="reward-points">${r.points_required} pts</span>`}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+    return;
+  }
+
+  if (state.dashboardTab === 'bookings') {
+    const visibleBookings = state.bookings.filter(b => b.status !== 'annule');
+    zone.innerHTML = `
+      <div class="section-title" style="margin-top:0;">Mes réservations</div>
+      ${visibleBookings.length === 0 ? `<div class="empty-state">Aucune réservation pour le moment.<br>Utilisez le bouton en bas pour réserver une coupe.</div>` : ''}
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${visibleBookings.map(b => `
+          <div class="history-item" data-id="${b.id}" style="align-items:flex-start;flex-direction:column;gap:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;width:100%;">
+              <div>
+                <div>${b.slot_datetime ? formatDate(b.slot_datetime) : (b.message || 'Demande de réservation')}</div>
+                ${b.service_name ? `<div class="date">${b.service_name} · ${parseFloat(b.service_price).toFixed(2)}€</div>` : ''}
+                ${b.slot_datetime && b.message ? `<div class="date">${b.message}</div>` : ''}
+              </div>
+              <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
+            </div>
+            <button class="btn btn-outline cancel-booking-btn" style="width:auto;padding:8px 14px;font-size:12.5px;">Annuler cette réservation</button>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    zone.querySelectorAll('.cancel-booking-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const row = btn.closest('[data-id]');
+        const bookingId = row.dataset.id;
+        if (!confirm('Confirmer l\'annulation de cette réservation ?')) return;
+        btn.disabled = true;
+        btn.textContent = 'Annulation...';
+        try {
+          await api(`/booking/${bookingId}/cancel`, { method: 'PUT' });
+          const bookingsRes = await api('/bookings');
+          state.bookings = bookingsRes.bookings;
+          renderDashboardTabContent();
+        } catch (err) {
+          btn.disabled = false;
+          btn.textContent = 'Annuler cette réservation';
+          alert(err.message);
+        }
+      };
+    });
+    return;
+  }
+
+  if (state.dashboardTab === 'history') {
+    zone.innerHTML = `
+      <div class="section-title" style="margin-top:0;">Historique des visites</div>
+      <div class="history-list">
+        ${state.history.length === 0 ? `<div class="empty-state">Aucune visite enregistrée pour l'instant.<br>Votre première coupe apparaîtra ici.</div>` : ''}
+        ${state.history.map(v => `
+          <div class="history-item">
+            <div>
+              <div>${v.note || 'Prestation en salon'}</div>
+              <div class="date">${formatDate(v.created_at)}</div>
+            </div>
+            <div class="pts">+${v.points_added} pt${v.points_added > 1 ? 's' : ''}</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+}
+
 function formatDate(iso) {
   let s = iso;
   if (typeof s === 'string' && s.includes(' ') && !s.includes('T')) {
@@ -48,758 +469,173 @@ function formatDate(iso) {
   return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-/* ---------------- INIT ---------------- */
-function init() {
-  if (state.token) {
-    renderShell();
-  } else {
-    renderLogin();
-  }
-}
-
-/* ---------------- LOGIN ---------------- */
-function renderLogin() {
-  app.innerHTML = `
-    <div class="screen" style="max-width:400px;margin:0 auto;">
-      <div class="hero-auth">
-        <img src="/logo.jpg" alt="Hairsprit" class="hero-logo" />
-        <p>Espace barber</p>
-      </div>
-      ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
-      <form id="login-form" style="margin-top:26px;">
+/* ---------------- ADDRESS SHEET ---------------- */
+function openAddressSheet() {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'sheet-backdrop';
+  backdrop.innerHTML = `
+    <div class="sheet">
+      <h3>Mon adresse</h3>
+      <div class="sub">Utilisée pour les prestations à domicile.</div>
+      <div id="address-error"></div>
+      <form id="address-form">
         <div class="field">
-          <label for="username">Identifiant</label>
-          <input id="username" name="username" required autocomplete="username" />
+          <label for="address-input">Adresse</label>
+          <input id="address-input" name="address" placeholder="12 rue des Lilas, 75011 Paris" value="${(state.client.address || '').replace(/"/g, '&quot;')}" />
         </div>
-        <div class="field">
-          <label for="password">Mot de passe</label>
-          <input id="password" name="password" type="password" required autocomplete="current-password" />
-        </div>
-        <button class="btn btn-primary" type="submit">${state.loading ? '...' : 'Se connecter'}</button>
+        <button class="btn btn-primary" type="submit">Enregistrer</button>
+        <button class="btn btn-ghost" type="button" id="cancel-address" style="margin-top:10px;">Annuler</button>
       </form>
     </div>
   `;
-  document.getElementById('login-form').onsubmit = async (e) => {
+  document.body.appendChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+  backdrop.querySelector('#cancel-address').onclick = () => backdrop.remove();
+
+  backdrop.querySelector('#address-form').onsubmit = async (e) => {
     e.preventDefault();
-    const fd = new FormData(e.target);
-    state.error = null;
+    const address = e.target.address.value;
     try {
-      const res = await api('/login', {
-        method: 'POST',
-        body: JSON.stringify({ username: fd.get('username'), password: fd.get('password') }),
-      });
-      saveSession(res.token, res.username);
-      renderShell();
+      const res = await api('/me', { method: 'PUT', body: JSON.stringify({ address }) });
+      state.client = res.client;
+      backdrop.remove();
+      renderDashboard();
     } catch (err) {
-      state.error = err.message;
-      renderLogin();
+      backdrop.querySelector('#address-error').innerHTML = `<div class="error-msg">${err.message}</div>`;
     }
   };
 }
 
-/* ---------------- SHELL / NAV ---------------- */
-const TABS = [
-  { id: 'scanner', label: 'Scanner' },
-  { id: 'clients', label: 'Clients' },
-  { id: 'rewards', label: 'Récompenses' },
-  { id: 'services', label: 'Tarifs' },
-  { id: 'bookings', label: 'Réservations' },
-  { id: 'stats', label: 'Statistiques' },
-];
-
-function renderShell() {
-  app.innerHTML = `
-    <div class="topbar">
-      <div class="brand">
-        <img src="/logo.jpg" alt="Hairsprit" class="brand-logo" />
-        <span class="tag">Espace barber · ${state.username}</span>
-      </div>
-      <button class="icon-btn" id="logout-btn" title="Déconnexion">⏻</button>
-    </div>
-    <div class="admin-layout">
-      <div class="admin-nav">
-        ${TABS.map(t => `<button data-tab="${t.id}" class="${state.tab === t.id ? 'active' : ''}">${t.label}</button>`).join('')}
-      </div>
-      <div class="admin-main" id="admin-main"></div>
+/* ---------------- BOOKING SHEET ---------------- */
+function openBookingSheet() {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'sheet-backdrop';
+  backdrop.innerHTML = `
+    <div class="sheet">
+      <h3>Réserver une coupe</h3>
+      <div class="sub">Choisissez une prestation, puis un créneau disponible.</div>
+      <div id="booking-error"></div>
+      <div id="slots-zone"><div class="loading-spin"></div></div>
     </div>
   `;
-  document.getElementById('logout-btn').onclick = () => {
-    stopScanner();
-    clearSession();
-    renderLogin();
-  };
-  document.querySelectorAll('.admin-nav button').forEach(btn => {
-    btn.onclick = () => {
-      if (state.tab === 'scanner' && btn.dataset.tab !== 'scanner') stopScanner();
-      state.tab = btn.dataset.tab;
-      renderShell();
-    };
-  });
-  renderTabContent();
-}
+  document.body.appendChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
 
-function renderTabContent() {
-  const main = document.getElementById('admin-main');
-  if (state.tab === 'scanner') return renderScannerTab(main);
-  if (state.tab === 'clients') return renderClientsTab(main);
-  if (state.tab === 'rewards') return renderRewardsTab(main);
-  if (state.tab === 'services') return renderServicesTab(main);
-  if (state.tab === 'bookings') return renderBookingsTab(main);
-  if (state.tab === 'stats') return renderStatsTab(main);
-}
+  let selectedSlot = null;
+  let selectedService = null;
 
-/* ---------------- SCANNER TAB ---------------- */
-function renderScannerTab(main) {
-  main.innerHTML = `
-    <div class="scanner-box">
-      <div class="section-title" style="margin-top:0;">Scanner un client</div>
-      <div id="qr-reader"></div>
-      <div id="scan-error"></div>
-      <button class="btn btn-outline" id="toggle-scan" style="margin-top:14px;">
-        ${state.scannerActive ? 'Arrêter la caméra' : 'Activer la caméra'}
-      </button>
-      <div id="client-result-zone"></div>
-    </div>
-  `;
-  document.getElementById('toggle-scan').onclick = () => {
-    if (state.scannerActive) stopScanner();
-    else startScanner();
-  };
-  if (state.scannedClient) renderScannedClient();
-}
-
-function startScanner() {
-  state.scannedClient = null;
-  const el = document.getElementById('qr-reader');
-  if (!el) return;
-  state.html5QrCode = new Html5Qrcode('qr-reader');
-  state.html5QrCode.start(
-    { facingMode: 'environment' },
-    { fps: 10, qrbox: 240 },
-    async (decodedText) => {
-      await handleScanResult(decodedText);
-    },
-    () => { /* ignore per-frame scan errors */ }
-  ).then(() => {
-    state.scannerActive = true;
-    const btn = document.getElementById('toggle-scan');
-    if (btn) btn.textContent = 'Arrêter la caméra';
-  }).catch((err) => {
-    document.getElementById('scan-error').innerHTML = `<div class="error-msg">Impossible d'accéder à la caméra : ${err}</div>`;
-  });
-}
-
-function stopScanner() {
-  if (state.html5QrCode && state.scannerActive) {
-    state.html5QrCode.stop().catch(() => {});
-  }
-  state.scannerActive = false;
-}
-
-async function handleScanResult(qrToken) {
-  stopScanner();
-  try {
-    const res = await api(`/client-by-qr/${encodeURIComponent(qrToken)}`);
-    state.scannedClient = res.client;
-    renderTabContent();
-  } catch (err) {
-    document.getElementById('scan-error').innerHTML = `<div class="error-msg">${err.message}</div>`;
-    renderTabContent();
-  }
-}
-
-function renderScannedClient(justAdded, justReset) {
-  const zone = document.getElementById('client-result-zone');
-  const c = state.scannedClient;
-  zone.innerHTML = `
-    <div class="client-result">
-      ${justAdded ? `<div class="success-msg">✓ Point ajouté avec succès !</div>` : ''}
-      ${justReset ? `<div class="success-msg">✓ Points réinitialisés avec succès !</div>` : ''}
-      <div class="name">${c.prenom} ${c.nom}</div>
-      <div class="phone">${c.telephone}</div>
-      <div class="points-line">${c.points} points</div>
-      <button class="btn btn-primary" id="add-point-btn">+ Ajouter 1 point (prestation)</button>
-      ${c.points >= 10 ? `
-        <button class="btn btn-outline" id="reset-points-btn" style="margin-top:10px;">Réinitialiser les points (récompense utilisée)</button>
-      ` : ''}
-    </div>
-  `;
-  document.getElementById('add-point-btn').onclick = async () => {
-    const btn = document.getElementById('add-point-btn');
-    btn.disabled = true;
-    btn.textContent = 'Ajout en cours...';
+  async function loadServicesThenSlots() {
+    const zone = backdrop.querySelector('#slots-zone');
+    let services = [];
     try {
-      const res = await api(`/client/${c.id}/point`, { method: 'POST', body: JSON.stringify({ points: 1 }) });
-      state.scannedClient = res.client;
-      renderScannedClient(true, false);
-    } catch (err) {
-      zone.innerHTML += `<div class="error-msg">${err.message}</div>`;
-      btn.disabled = false;
-      btn.textContent = '+ Ajouter 1 point (prestation)';
+      const servicesRes = await api('/services');
+      services = servicesRes.services;
+    } catch (e) { /* silent, on continue sans tarifs */ }
+
+    if (services.length === 0) {
+      loadSlots(zone);
+      return;
     }
-  };
-  const resetBtn = document.getElementById('reset-points-btn');
-  if (resetBtn) {
-    resetBtn.onclick = async () => {
-      if (!confirm(`Confirmer la réinitialisation des points de ${c.prenom} ${c.nom} ?`)) return;
-      resetBtn.disabled = true;
-      resetBtn.textContent = '...';
-      try {
-        const res = await api(`/client/${c.id}/reset`, { method: 'POST' });
-        state.scannedClient = res.client;
-        renderScannedClient(false, true);
-      } catch (err) {
-        zone.innerHTML += `<div class="error-msg">${err.message}</div>`;
-        resetBtn.disabled = false;
-        resetBtn.textContent = 'Réinitialiser les points (récompense utilisée)';
-      }
-    };
-  }
-}
 
-/* ---------------- CLIENTS TAB ---------------- */
-async function renderClientsTab(main) {
-  main.innerHTML = `<div class="loading-spin"></div>`;
-  try {
-    const res = await api(`/clients${state.clientSearch ? '?q=' + encodeURIComponent(state.clientSearch) : ''}`);
-    state.clients = res.clients;
-  } catch (e) {
-    main.innerHTML = `<div class="error-msg">${e.message}</div>`;
-    return;
-  }
-  main.innerHTML = `
-    <div class="section-title" style="margin-top:0;">Liste des clients (${state.clients.length})</div>
-    <div class="search-row">
-      <input id="search-input" placeholder="Rechercher par nom ou téléphone..." value="${state.clientSearch}" />
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Client</th><th>Téléphone</th><th>Adresse</th><th>Points</th><th>Membre depuis</th></tr></thead>
-        <tbody>
-          ${state.clients.length === 0 ? `<tr><td colspan="5" style="text-align:center;color:var(--argent);">Aucun client trouvé.</td></tr>` : ''}
-          ${state.clients.map(c => `
-            <tr>
-              <td>${c.prenom} ${c.nom}</td>
-              <td>${c.telephone}</td>
-              <td style="color:var(--argent);font-size:12.5px;">${c.address || '—'}</td>
-              <td class="pts-cell">${c.points}</td>
-              <td>${formatDate(c.created_at)}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-  const input = document.getElementById('search-input');
-  let timeout;
-  input.oninput = (e) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => {
-      state.clientSearch = e.target.value;
-      renderClientsTab(main);
-    }, 300);
-  };
-  input.focus();
-  input.setSelectionRange(input.value.length, input.value.length);
-}
-
-/* ---------------- REWARDS TAB ---------------- */
-async function renderRewardsTab(main) {
-  main.innerHTML = `<div class="loading-spin"></div>`;
-  try {
-    const res = await api('/rewards');
-    state.rewards = res.rewards;
-  } catch (e) {
-    main.innerHTML = `<div class="error-msg">${e.message}</div>`;
-    return;
-  }
-  main.innerHTML = `
-    <div class="section-title" style="margin-top:0;">Récompenses</div>
-    <div class="rewards-admin-grid" id="rewards-list"></div>
-    <div class="section-title">Ajouter une récompense</div>
-    <form id="new-reward-form">
-      <div class="field"><label>Nom</label><input name="name" required placeholder="Ex : Coupe offerte" /></div>
-      <div class="field"><label>Points requis</label><input name="points_required" type="number" min="1" required /></div>
-      <div class="field"><label>Description</label><input name="description" placeholder="Détail de la récompense" /></div>
-      <button class="btn btn-outline" type="submit">Ajouter</button>
-    </form>
-  `;
-  const list = document.getElementById('rewards-list');
-  list.innerHTML = state.rewards.map(r => `
-    <div class="reward-admin-row" data-id="${r.id}">
-      <div class="grow">
-        <input class="edit-name" value="${r.name.replace(/"/g, '&quot;')}" style="width:100%;margin-bottom:6px;" />
-        <input class="edit-desc" value="${(r.description || '').replace(/"/g, '&quot;')}" style="width:100%;" />
-      </div>
-      <input class="edit-points" type="number" value="${r.points_required}" style="width:70px;" />
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--argent);">
-        <input class="edit-active" type="checkbox" ${r.active ? 'checked' : ''} /> Actif
-      </label>
-      <button class="btn btn-outline save-reward" style="width:auto;padding:10px 14px;">Enregistrer</button>
-      <button class="btn btn-danger delete-reward" style="width:auto;padding:10px 14px;">Supprimer</button>
-    </div>
-  `).join('') || `<div class="empty-state">Aucune récompense configurée.</div>`;
-
-  list.querySelectorAll('.save-reward').forEach(btn => {
-    btn.onclick = async () => {
-      const row = btn.closest('.reward-admin-row');
-      const id = row.dataset.id;
-      try {
-        await api(`/rewards/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify({
-            name: row.querySelector('.edit-name').value,
-            description: row.querySelector('.edit-desc').value,
-            points_required: row.querySelector('.edit-points').value,
-            active: row.querySelector('.edit-active').checked,
-          }),
-        });
-        renderRewardsTab(main);
-      } catch (e) { alert(e.message); }
-    };
-  });
-  list.querySelectorAll('.delete-reward').forEach(btn => {
-    btn.onclick = async () => {
-      const row = btn.closest('.reward-admin-row');
-      if (!confirm('Supprimer cette récompense ?')) return;
-      try {
-        await api(`/rewards/${row.dataset.id}`, { method: 'DELETE' });
-        renderRewardsTab(main);
-      } catch (e) { alert(e.message); }
-    };
-  });
-
-  document.getElementById('new-reward-form').onsubmit = async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    try {
-      await api('/rewards', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: fd.get('name'),
-          points_required: fd.get('points_required'),
-          description: fd.get('description'),
-        }),
-      });
-      renderRewardsTab(main);
-    } catch (err) { alert(err.message); }
-  };
-}
-
-/* ---------------- SERVICES (TARIFS) TAB ---------------- */
-async function renderServicesTab(main) {
-  main.innerHTML = `<div class="loading-spin"></div>`;
-  let services;
-  try {
-    const res = await api('/services');
-    services = res.services;
-  } catch (e) {
-    main.innerHTML = `<div class="error-msg">${e.message}</div>`;
-    return;
-  }
-  main.innerHTML = `
-    <div class="section-title" style="margin-top:0;">Tarifs</div>
-    <div class="rewards-admin-grid" id="services-list"></div>
-    <div class="section-title">Ajouter une prestation</div>
-    <form id="new-service-form">
-      <div class="field"><label>Nom</label><input name="name" required placeholder="Ex : Coupe classique" /></div>
-      <div class="field"><label>Prix (€)</label><input name="price" type="number" min="0" step="0.5" required /></div>
-      <div class="field"><label>Description</label><input name="description" placeholder="Détail de la prestation" /></div>
-      <button class="btn btn-outline" type="submit">Ajouter</button>
-    </form>
-  `;
-  const list = document.getElementById('services-list');
-  list.innerHTML = services.map(s => `
-    <div class="reward-admin-row" data-id="${s.id}">
-      <div class="grow">
-        <input class="edit-name" value="${s.name.replace(/"/g, '&quot;')}" style="width:100%;margin-bottom:6px;" />
-        <input class="edit-desc" value="${(s.description || '').replace(/"/g, '&quot;')}" style="width:100%;" />
-      </div>
-      <input class="edit-price" type="number" min="0" step="0.5" value="${s.price}" style="width:80px;" />
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--argent);">
-        <input class="edit-active" type="checkbox" ${s.active ? 'checked' : ''} /> Actif
-      </label>
-      <button class="btn btn-outline save-service" style="width:auto;padding:10px 14px;">Enregistrer</button>
-      <button class="btn btn-danger delete-service" style="width:auto;padding:10px 14px;">Supprimer</button>
-    </div>
-  `).join('') || `<div class="empty-state">Aucune prestation configurée.</div>`;
-
-  list.querySelectorAll('.save-service').forEach(btn => {
-    btn.onclick = async () => {
-      const row = btn.closest('.reward-admin-row');
-      const id = row.dataset.id;
-      try {
-        await api(`/services/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify({
-            name: row.querySelector('.edit-name').value,
-            description: row.querySelector('.edit-desc').value,
-            price: row.querySelector('.edit-price').value,
-            active: row.querySelector('.edit-active').checked,
-          }),
-        });
-        renderServicesTab(main);
-      } catch (e) { alert(e.message); }
-    };
-  });
-  list.querySelectorAll('.delete-service').forEach(btn => {
-    btn.onclick = async () => {
-      const row = btn.closest('.reward-admin-row');
-      if (!confirm('Supprimer cette prestation ?')) return;
-      try {
-        await api(`/services/${row.dataset.id}`, { method: 'DELETE' });
-        renderServicesTab(main);
-      } catch (e) { alert(e.message); }
-    };
-  });
-
-  document.getElementById('new-service-form').onsubmit = async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    try {
-      await api('/services', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: fd.get('name'),
-          price: fd.get('price'),
-          description: fd.get('description'),
-        }),
-      });
-      renderServicesTab(main);
-    } catch (err) { alert(err.message); }
-  };
-}
-
-/* ---------------- BOOKINGS TAB ---------------- */
-const WEEKDAYS = [
-  { value: 1, label: 'Lun' },
-  { value: 2, label: 'Mar' },
-  { value: 3, label: 'Mer' },
-  { value: 4, label: 'Jeu' },
-  { value: 5, label: 'Ven' },
-  { value: 6, label: 'Sam' },
-  { value: 0, label: 'Dim' },
-];
-
-async function renderBookingsTab(main) {
-  main.innerHTML = `<div class="loading-spin"></div>`;
-  let schedule;
-  let blockedDates;
-  let blockedSlots;
-  try {
-    const [bookingsRes, scheduleRes, blockedRes, blockedSlotsRes] = await Promise.all([api('/bookings'), api('/schedule'), api('/blocked-dates'), api('/blocked-slots')]);
-    state.bookings = bookingsRes.bookings;
-    schedule = scheduleRes.settings;
-    blockedDates = blockedRes.blockedDates;
-    blockedSlots = blockedSlotsRes.blockedSlots;
-  } catch (e) {
-    main.innerHTML = `<div class="error-msg">${e.message}</div>`;
-    return;
-  }
-  const openDaysArr = schedule.open_days.split(',').map(d => parseInt(d, 10));
-  const visibleBookings = state.bookings.filter(b => b.status !== 'annule');
-
-  main.innerHTML = `
-    <div class="section-title" style="margin-top:0;">Horaires d'ouverture</div>
-    <div class="scanner-box" style="max-width:100%;">
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
-        ${WEEKDAYS.map(d => `
-          <label class="pill" style="cursor:pointer;padding:8px 12px;">
-            <input type="checkbox" class="day-check" value="${d.value}" ${openDaysArr.includes(d.value) ? 'checked' : ''} style="margin-right:6px;" />${d.label}
-          </label>
+    zone.innerHTML = `
+      <div class="section-title" style="margin-top:0;">Prestation</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${services.map(s => `
+          <button type="button" class="btn btn-outline service-pick-btn" data-service-id="${s.id}" data-service-name="${s.name.replace(/"/g, '&quot;')}" style="justify-content:space-between;text-align:left;">
+            <span>${s.name}</span>
+            <span style="font-family:var(--font-mono);">${parseFloat(s.price).toFixed(2)}€</span>
+          </button>
         `).join('')}
       </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
-        <div class="field" style="margin-bottom:0;flex:1;min-width:110px;">
-          <label>Ouverture</label>
-          <input type="time" id="start-time" value="${schedule.start_time}" />
-        </div>
-        <div class="field" style="margin-bottom:0;flex:1;min-width:110px;">
-          <label>Fermeture</label>
-          <input type="time" id="end-time" value="${schedule.end_time}" />
-        </div>
-        <div class="field" style="margin-bottom:0;flex:1;min-width:130px;">
-          <label>Durée créneau (min)</label>
-          <input type="number" id="slot-duration" value="${schedule.slot_duration_minutes}" min="15" step="15" />
-        </div>
-      </div>
-      <button class="btn btn-outline" id="save-schedule-btn" style="margin-top:14px;">Enregistrer les horaires</button>
-      <div id="schedule-msg"></div>
-    </div>
+    `;
+    zone.querySelectorAll('.service-pick-btn').forEach(btn => {
+      btn.onclick = () => {
+        selectedService = { id: btn.dataset.serviceId, name: btn.dataset.serviceName };
+        loadSlots(zone);
+      };
+    });
+  }
 
-    <div class="section-title">Jours de congé / fermeture ponctuelle</div>
-    <div class="scanner-box" style="max-width:100%;">
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
-        <div class="field" style="margin-bottom:0;flex:1;min-width:150px;">
-          <label>Date</label>
-          <input type="date" id="block-date-input" />
-        </div>
-        <div class="field" style="margin-bottom:0;flex:2;min-width:180px;">
-          <label>Raison (optionnel)</label>
-          <input type="text" id="block-reason-input" placeholder="Ex : vacances, jour férié..." />
-        </div>
-      </div>
-      <button class="btn btn-outline" id="add-blocked-date-btn" style="margin-top:14px;">Bloquer cette date</button>
-      <div id="blocked-date-msg"></div>
-      ${blockedDates.length > 0 ? `
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px;">
-          ${blockedDates.map(bd => `
-            <div class="history-item" data-blocked-id="${bd.id}">
-              <div>
-                <div>${new Date(bd.blocked_date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })}</div>
-                ${bd.reason ? `<div class="date">${bd.reason}</div>` : ''}
-              </div>
-              <button class="btn btn-danger unblock-date-btn" style="width:auto;padding:8px 12px;font-size:12.5px;">Débloquer</button>
-            </div>
-          `).join('')}
-        </div>
-      ` : `<div class="empty-state" style="margin-top:14px;">Aucune date bloquée pour le moment.</div>`}
-    </div>
-
-    <div class="section-title">Bloquer une heure précise (rdv perso, etc.)</div>
-    <div class="scanner-box" style="max-width:100%;">
-      <div class="field" style="max-width:220px;">
-        <label>Choisir un jour</label>
-        <input type="date" id="slot-date-picker" />
-      </div>
-      <div id="day-slots-zone" style="margin-top:10px;"></div>
-      ${blockedSlots.length > 0 ? `
-        <div class="section-title" style="margin-top:20px;">Heures actuellement bloquées</div>
-        <div style="display:flex;flex-direction:column;gap:8px;">
-          ${blockedSlots.map(bs => `
-            <div class="history-item" data-blocked-slot-id="${bs.id}">
-              <div>
-                <div>${formatDate(bs.slot_datetime)}</div>
-                ${bs.reason ? `<div class="date">${bs.reason}</div>` : ''}
-              </div>
-              <button class="btn btn-danger unblock-slot-btn" style="width:auto;padding:8px 12px;font-size:12.5px;">Débloquer</button>
-            </div>
-          `).join('')}
-        </div>
-      ` : ''}
-    </div>
-
-    <div class="section-title">Demandes de réservation</div>
-    ${visibleBookings.length === 0 ? `<div class="empty-state">Aucune demande pour le moment.</div>` : ''}
-    <div style="display:flex;flex-direction:column;gap:10px;">
-      ${visibleBookings.map(b => `
-        <div class="reward-admin-row" data-id="${b.id}" style="flex-direction:column;align-items:stretch;gap:10px;">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
-            <div>
-              <div style="font-weight:600;font-size:14.5px;">${b.prenom} ${b.nom}</div>
-              <div style="color:var(--argent);font-size:12.5px;">${b.telephone}</div>
-              ${b.address ? `<div style="color:var(--argent);font-size:12px;">📍 ${b.address}</div>` : ''}
-            </div>
-            <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
-          </div>
-          ${b.slot_datetime ? `<div style="font-family:var(--font-mono);font-size:14px;">${formatDate(b.slot_datetime)}</div>` : ''}
-          ${b.service_name ? `<div style="font-size:13.5px;color:var(--succes);">${b.service_name} · ${parseFloat(b.service_price).toFixed(2)}€</div>` : ''}
-          <div style="font-size:13.5px;">${b.message || '—'}</div>
-          <div style="color:var(--argent);font-size:12px;">Demande envoyée le ${formatDate(b.created_at)}</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            ${b.status === 'en_attente' ? `
-              <button class="btn btn-outline confirm-btn" style="width:auto;flex:1;padding:10px 14px;font-size:13px;">✓ Confirmer</button>
-              <button class="btn btn-danger cancel-btn" style="width:auto;flex:1;padding:10px 14px;font-size:13px;">✕ Annuler</button>
-            ` : `
-              <button class="btn btn-outline reopen-btn" style="width:auto;padding:10px 14px;font-size:13px;">Remettre en attente</button>
-            `}
-          </div>
-        </div>
-      `).join('')}
-    </div>
-  `;
-
-  main.querySelector('#save-schedule-btn').onclick = async () => {
-    const btn = main.querySelector('#save-schedule-btn');
-    const checkedDays = Array.from(main.querySelectorAll('.day-check:checked')).map(c => c.value).join(',');
-    const start_time = main.querySelector('#start-time').value;
-    const end_time = main.querySelector('#end-time').value;
-    const slot_duration_minutes = main.querySelector('#slot-duration').value;
-    if (!checkedDays) {
-      main.querySelector('#schedule-msg').innerHTML = `<div class="error-msg">Sélectionnez au moins un jour.</div>`;
-      return;
-    }
-    btn.disabled = true;
-    btn.textContent = 'Enregistrement...';
+  async function loadSlots(zone) {
     try {
-      await api('/schedule', {
-        method: 'PUT',
-        body: JSON.stringify({ open_days: checkedDays, start_time, end_time, slot_duration_minutes }),
-      });
-      main.querySelector('#schedule-msg').innerHTML = `<div class="success-msg">✓ Horaires enregistrés.</div>`;
-      btn.disabled = false;
-      btn.textContent = 'Enregistrer les horaires';
-    } catch (err) {
-      main.querySelector('#schedule-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
-      btn.disabled = false;
-      btn.textContent = 'Enregistrer les horaires';
-    }
-  };
-
-  main.querySelector('#add-blocked-date-btn').onclick = async () => {
-    const btn = main.querySelector('#add-blocked-date-btn');
-    const date = main.querySelector('#block-date-input').value;
-    const reason = main.querySelector('#block-reason-input').value;
-    if (!date) {
-      main.querySelector('#blocked-date-msg').innerHTML = `<div class="error-msg">Choisissez une date.</div>`;
-      return;
-    }
-    btn.disabled = true;
-    btn.textContent = 'Ajout...';
-    try {
-      await api('/blocked-dates', { method: 'POST', body: JSON.stringify({ date, reason }) });
-      renderBookingsTab(main);
-    } catch (err) {
-      main.querySelector('#blocked-date-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
-      btn.disabled = false;
-      btn.textContent = 'Bloquer cette date';
-    }
-  };
-
-  main.querySelectorAll('.unblock-date-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const row = btn.closest('[data-blocked-id]');
-      const id = row.dataset.blockedId;
-      btn.disabled = true;
-      btn.textContent = '...';
-      try {
-        await api(`/blocked-dates/${id}`, { method: 'DELETE' });
-        renderBookingsTab(main);
-      } catch (err) {
-        alert(err.message);
-        btn.disabled = false;
-        btn.textContent = 'Débloquer';
-      }
-    };
-  });
-
-  main.querySelectorAll('.unblock-slot-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const row = btn.closest('[data-blocked-slot-id]');
-      const id = row.dataset.blockedSlotId;
-      btn.disabled = true;
-      btn.textContent = '...';
-      try {
-        await api(`/blocked-slots/${id}`, { method: 'DELETE' });
-        renderBookingsTab(main);
-      } catch (err) {
-        alert(err.message);
-        btn.disabled = false;
-        btn.textContent = 'Débloquer';
-      }
-    };
-  });
-
-  main.querySelector('#slot-date-picker').onchange = async (e) => {
-    const zone = main.querySelector('#day-slots-zone');
-    const date = e.target.value;
-    if (!date) { zone.innerHTML = ''; return; }
-    zone.innerHTML = `<div class="loading-spin"></div>`;
-    try {
-      const res = await api(`/slots-for-date/${date}`);
+      const res = await api('/available-slots');
       if (res.slots.length === 0) {
-        zone.innerHTML = `<div class="empty-state">Aucun créneau ce jour (jour fermé ou horaires non définis).</div>`;
+        zone.innerHTML = `<div class="empty-state">Aucun créneau disponible pour le moment. Contactez le salon directement.</div>
+          <button class="btn btn-ghost" id="cancel-booking" style="margin-top:14px;">Fermer</button>`;
+        zone.querySelector('#cancel-booking').onclick = () => backdrop.remove();
         return;
       }
+      const byDay = {};
+      res.slots.forEach(iso => {
+        const d = new Date(iso);
+        const dayKey = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+        if (!byDay[dayKey]) byDay[dayKey] = [];
+        byDay[dayKey].push(iso);
+      });
       zone.innerHTML = `
-        <div style="display:flex;flex-wrap:wrap;gap:8px;">
-          ${res.slots.map(s => `
-            <button type="button" class="btn ${s.blocked ? 'btn-danger' : (s.taken ? 'btn-outline' : 'btn-outline')} slot-pick-btn"
-              data-datetime="${s.datetime}" data-blocked="${s.blocked}" data-taken="${s.taken}"
-              ${s.taken ? 'disabled' : ''}
-              style="width:auto;padding:10px 14px;font-size:13px;${s.taken ? 'opacity:0.4;' : ''}">
-              ${new Date(s.datetime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-              ${s.taken ? ' (réservé)' : s.blocked ? ' (bloqué)' : ''}
-            </button>
+        ${selectedService ? `<div class="section-title" style="margin-top:0;">Prestation : ${selectedService.name}</div>` : ''}
+        <div style="max-height:340px;overflow-y:auto;">
+          ${Object.entries(byDay).map(([day, slots]) => `
+            <div class="section-title" style="margin-top:16px;">${day}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;">
+              ${slots.map(iso => `
+                <button type="button" class="btn btn-outline slot-btn" data-slot="${iso}" style="width:auto;padding:10px 14px;font-size:13px;">
+                  ${new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                </button>
+              `).join('')}
+            </div>
           `).join('')}
         </div>
+        <div class="field" style="margin-top:18px;">
+          <label for="message">Message (optionnel)</label>
+          <textarea id="message" name="message" rows="2" placeholder="Précision sur la prestation..."></textarea>
+        </div>
+        <button class="btn btn-primary" id="confirm-slot-btn" disabled>Choisissez un créneau</button>
+        <button class="btn btn-ghost" type="button" id="cancel-booking" style="margin-top:10px;">Annuler</button>
       `;
-      zone.querySelectorAll('.slot-pick-btn').forEach(btn => {
-        btn.onclick = async () => {
-          const datetime = btn.dataset.datetime;
-          const isBlocked = btn.dataset.blocked === 'true';
-          if (isBlocked) {
-            try {
-              const res2 = await api('/blocked-slots');
-              const entry = res2.blockedSlots.find(bs => new Date(bs.slot_datetime).toISOString() === datetime);
-              if (entry) await api(`/blocked-slots/${entry.id}`, { method: 'DELETE' });
-              renderBookingsTab(main);
-            } catch (err) { alert(err.message); }
-          } else {
-            const reason = prompt('Raison (optionnel) :', '');
-            if (reason === null) return;
-            try {
-              await api('/blocked-slots', { method: 'POST', body: JSON.stringify({ slot_datetime: datetime, reason }) });
-              renderBookingsTab(main);
-            } catch (err) { alert(err.message); }
-          }
+
+      zone.querySelectorAll('.slot-btn').forEach(btn => {
+        btn.onclick = () => {
+          zone.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('unlocked'));
+          btn.classList.add('unlocked');
+          selectedSlot = btn.dataset.slot;
+          const confirmBtn = zone.querySelector('#confirm-slot-btn');
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = `Réserver le ${new Date(selectedSlot).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })} à ${new Date(selectedSlot).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
         };
       });
+
+      zone.querySelector('#cancel-booking').onclick = () => backdrop.remove();
+
+      zone.querySelector('#confirm-slot-btn').onclick = async () => {
+        if (!selectedSlot) return;
+        const message = zone.querySelector('#message').value;
+        const confirmBtn = zone.querySelector('#confirm-slot-btn');
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Envoi en cours...';
+        try {
+          await api('/booking', {
+            method: 'POST',
+            body: JSON.stringify({ message, slot_datetime: selectedSlot, service_id: selectedService ? selectedService.id : null }),
+          });
+          backdrop.querySelector('.sheet').innerHTML = `
+            <h3>Demande envoyée ✓</h3>
+            <div class="success-msg" style="margin-top:14px;">Votre demande a bien été transmise à Hairsprit. Vous serez recontacté pour confirmer votre rendez-vous.</div>
+            <button class="btn btn-outline" id="close-sheet">Fermer</button>
+          `;
+          backdrop.querySelector('#close-sheet').onclick = () => backdrop.remove();
+        } catch (err) {
+          backdrop.querySelector('#booking-error').innerHTML = `<div class="error-msg">${err.message}</div>`;
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = 'Réessayer';
+        }
+      };
     } catch (err) {
       zone.innerHTML = `<div class="error-msg">${err.message}</div>`;
     }
-  };
-
-  async function updateStatus(id, status) {
-    try {
-      await api(`/bookings/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
-      renderBookingsTab(main);
-    } catch (err) { alert(err.message); }
   }
 
-  main.querySelectorAll('.confirm-btn').forEach(btn => {
-    btn.onclick = () => updateStatus(btn.closest('[data-id]').dataset.id, 'confirme');
-  });
-  main.querySelectorAll('.cancel-btn').forEach(btn => {
-    btn.onclick = () => updateStatus(btn.closest('[data-id]').dataset.id, 'annule');
-  });
-  main.querySelectorAll('.reopen-btn').forEach(btn => {
-    btn.onclick = () => updateStatus(btn.closest('[data-id]').dataset.id, 'en_attente');
-  });
-}
-
-/* ---------------- STATS TAB ---------------- */
-async function renderStatsTab(main) {
-  main.innerHTML = `<div class="loading-spin"></div>`;
-  try {
-    const res = await api('/stats');
-    state.stats = res;
-  } catch (e) {
-    main.innerHTML = `<div class="error-msg">${e.message}</div>`;
-    return;
-  }
-  const s = state.stats;
-  const maxVisits = Math.max(1, ...s.last30.map(d => d.visites));
-  main.innerHTML = `
-    <div class="section-title" style="margin-top:0;">Vue d'ensemble</div>
-    <div class="stats-grid">
-      <div class="stat-card"><div class="stat-value">${s.totalClients}</div><div class="stat-label">Clients inscrits</div></div>
-      <div class="stat-card"><div class="stat-value">${s.totalVisits}</div><div class="stat-label">Visites totales</div></div>
-      <div class="stat-card"><div class="stat-value">${s.totalPointsDistributed}</div><div class="stat-label">Points distribués</div></div>
-      <div class="stat-card"><div class="stat-value">${s.totalPointsActive}</div><div class="stat-label">Points en circulation</div></div>
-      <div class="stat-card"><div class="stat-value">${s.newClients30}</div><div class="stat-label">Nouveaux clients (30j)</div></div>
-      <div class="stat-card"><div class="stat-value">${s.pendingBookings}</div><div class="stat-label">Réservations en attente</div></div>
-    </div>
-
-    <div class="section-title">Visites — 30 derniers jours</div>
-    <div class="table-wrap" style="padding:20px;display:flex;align-items:flex-end;gap:3px;height:140px;overflow-x:auto;">
-      ${s.last30.length === 0 ? `<div class="empty-state" style="width:100%;">Pas encore de visite enregistrée.</div>` :
-        s.last30.map(d => `
-          <div title="${d.jour} — ${d.visites} visite(s)" style="flex:1;min-width:6px;background:var(--argent-clair);border-radius:3px 3px 0 0;height:${Math.max(6, (d.visites / maxVisits) * 100)}%;"></div>
-        `).join('')}
-    </div>
-
-    <div class="section-title">Top clients fidèles</div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Client</th><th>Points</th></tr></thead>
-        <tbody>
-          ${s.topClients.length === 0 ? `<tr><td colspan="2" style="text-align:center;color:var(--argent);">Aucune donnée.</td></tr>` : ''}
-          ${s.topClients.map(c => `<tr><td>${c.prenom} ${c.nom}</td><td class="pts-cell">${c.points}</td></tr>`).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
+  loadServicesThenSlots();
 }
 
 init();
