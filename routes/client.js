@@ -1,6 +1,7 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const QRCode = require('qrcode');
+const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { signToken, requireClientAuth } = require('../middleware/auth');
 
@@ -22,12 +23,19 @@ function clientPublic(client) {
   };
 }
 
+function isValidPin(pin) {
+  return typeof pin === 'string' && /^\d{4}$/.test(pin);
+}
+
 // POST /api/client/register
 router.post('/register', async (req, res) => {
   try {
-    const { nom, prenom, telephone, address } = req.body;
+    const { nom, prenom, telephone, address, pin } = req.body;
     if (!nom || !prenom || !telephone) {
       return res.status(400).json({ error: 'Nom, prénom et téléphone sont obligatoires.' });
+    }
+    if (!isValidPin(pin)) {
+      return res.status(400).json({ error: 'Choisissez un code PIN à 4 chiffres.' });
     }
     const tel = normalizePhone(telephone);
     if (tel.length < 8) {
@@ -41,8 +49,9 @@ router.post('/register', async (req, res) => {
 
     const id = uuidv4();
     const qrToken = uuidv4();
-    await db.run('INSERT INTO clients (id, nom, prenom, telephone, address, qr_token, points) VALUES (?,?,?,?,?,?,0)',
-      [id, nom.trim(), prenom.trim(), tel, (address || '').trim() || null, qrToken]);
+    const pinHash = bcrypt.hashSync(pin, 10);
+    await db.run('INSERT INTO clients (id, nom, prenom, telephone, address, qr_token, points, pin_hash) VALUES (?,?,?,?,?,?,0,?)',
+      [id, nom.trim(), prenom.trim(), tel, (address || '').trim() || null, qrToken, pinHash]);
 
     const client = await db.get('SELECT * FROM clients WHERE id = ?', [id]);
     const token = signToken({ id, role: 'client' });
@@ -53,14 +62,46 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// POST /api/client/login
-router.post('/login', async (req, res) => {
+// POST /api/client/check-phone -> tells the app whether a PIN already exists for this number
+router.post('/check-phone', async (req, res) => {
+  const { telephone } = req.body;
+  if (!telephone) return res.status(400).json({ error: 'Téléphone requis.' });
+  const tel = normalizePhone(telephone);
+  const client = await db.get('SELECT id, pin_hash FROM clients WHERE telephone = ?', [tel]);
+  if (!client) return res.status(404).json({ error: "Aucun compte trouvé avec ce numéro." });
+  res.json({ needsPinSetup: !client.pin_hash });
+});
+
+// POST /api/client/set-pin -> for accounts created before the PIN system existed
+router.post('/set-pin', async (req, res) => {
   try {
-    const { telephone } = req.body;
-    if (!telephone) return res.status(400).json({ error: 'Téléphone requis.' });
+    const { telephone, pin } = req.body;
+    if (!isValidPin(pin)) return res.status(400).json({ error: 'Choisissez un code PIN à 4 chiffres.' });
     const tel = normalizePhone(telephone);
     const client = await db.get('SELECT * FROM clients WHERE telephone = ?', [tel]);
     if (!client) return res.status(404).json({ error: "Aucun compte trouvé avec ce numéro." });
+    if (client.pin_hash) return res.status(409).json({ error: 'Un code PIN est déjà configuré. Connectez-vous normalement.' });
+    const pinHash = bcrypt.hashSync(pin, 10);
+    await db.run('UPDATE clients SET pin_hash = ? WHERE id = ?', [pinHash, client.id]);
+    const token = signToken({ id: client.id, role: 'client' });
+    res.json({ token, client: clientPublic(client) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Erreur serveur.' });
+  }
+});
+
+// POST /api/client/login
+router.post('/login', async (req, res) => {
+  try {
+    const { telephone, pin } = req.body;
+    if (!telephone || !pin) return res.status(400).json({ error: 'Téléphone et code PIN requis.' });
+    const tel = normalizePhone(telephone);
+    const client = await db.get('SELECT * FROM clients WHERE telephone = ?', [tel]);
+    if (!client) return res.status(404).json({ error: "Aucun compte trouvé avec ce numéro." });
+    if (!client.pin_hash) return res.status(409).json({ error: 'Aucun code PIN configuré pour ce compte.' });
+    const ok = bcrypt.compareSync(pin, client.pin_hash);
+    if (!ok) return res.status(401).json({ error: 'Code PIN incorrect.' });
     const token = signToken({ id: client.id, role: 'client' });
     res.json({ token, client: clientPublic(client) });
   } catch (e) {
