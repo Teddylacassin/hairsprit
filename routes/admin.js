@@ -83,7 +83,6 @@ router.put('/client/:id/notes', requireAdminAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// PUT /api/admin/client/:id/reset-pin -> client forgot their PIN, let them set a new one
 router.put('/client/:id/reset-pin', requireAdminAuth, async (req, res) => {
   const targetClient = await db.get('SELECT * FROM clients WHERE id = ?', [req.params.id]);
   if (!targetClient) return res.status(404).json({ error: 'Client introuvable.' });
@@ -91,7 +90,6 @@ router.put('/client/:id/reset-pin', requireAdminAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// POST /api/admin/client/:id/reset -> reset points to 0 (reward claimed)
 router.post('/client/:id/reset', requireAdminAuth, async (req, res) => {
   const targetClient = await db.get('SELECT * FROM clients WHERE id = ?', [req.params.id]);
   if (!targetClient) return res.status(404).json({ error: 'Client introuvable.' });
@@ -179,6 +177,31 @@ router.get('/client/:id', requireAdminAuth, async (req, res) => {
   if (!client) return res.status(404).json({ error: 'Client introuvable.' });
   const visits = await db.all('SELECT * FROM visits WHERE client_id = ? ORDER BY created_at DESC', [client.id]);
   res.json({ client: clientPublic(client), visits });
+});
+
+// PUT /api/admin/client/:id -> edit client's phone and/or address
+router.put('/client/:id', requireAdminAuth, async (req, res) => {
+  const targetClient = await db.get('SELECT * FROM clients WHERE id = ?', [req.params.id]);
+  if (!targetClient) return res.status(404).json({ error: 'Client introuvable.' });
+
+  const { telephone, address } = req.body;
+  let tel = targetClient.telephone;
+  if (telephone !== undefined) {
+    tel = String(telephone).replace(/[\s.\-()]/g, '');
+    if (tel.length < 8) return res.status(400).json({ error: 'Numéro de téléphone invalide.' });
+    if (tel !== targetClient.telephone) {
+      const existing = await db.get('SELECT id FROM clients WHERE telephone = ? AND id != ?', [tel, req.params.id]);
+      if (existing) return res.status(409).json({ error: 'Un autre client utilise déjà ce numéro.' });
+    }
+  }
+
+  await db.run('UPDATE clients SET telephone = ?, address = ? WHERE id = ?', [
+    tel,
+    address !== undefined ? ((address || '').trim() || null) : targetClient.address,
+    req.params.id,
+  ]);
+  const updated = await db.get('SELECT * FROM clients WHERE id = ?', [req.params.id]);
+  res.json({ client: clientPublic(updated) });
 });
 
 // REWARDS CRUD
