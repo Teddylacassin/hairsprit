@@ -64,8 +64,14 @@ input { font-family: inherit; }
 
 .brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
+}
+.brand-logo {
+  height: 32px;
+  width: auto;
+  object-fit: contain;
+  border-radius: 4px;
 }
 .brand .mark {
   font-family: var(--font-display);
@@ -96,6 +102,14 @@ input { font-family: inherit; }
 .hero-auth {
   text-align: center;
   padding: 30px 8px 10px;
+}
+.hero-logo {
+  height: 64px;
+  width: auto;
+  object-fit: contain;
+  margin: 0 auto 14px;
+  display: block;
+  border-radius: 8px;
 }
 .hero-auth .razor-line {
   width: 46px; height: 2px; background: var(--argent-clair);
