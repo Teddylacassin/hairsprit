@@ -386,6 +386,27 @@ router.get('/bookings', requireAdminAuth, async (req, res) => {
   res.json({ bookings: rows });
 });
 
+// POST /api/admin/bookings -> manually create a confirmed appointment for a client
+router.post('/bookings', requireAdminAuth, async (req, res) => {
+  const { client_id, slot_datetime, service_id, message } = req.body;
+  if (!client_id || !slot_datetime) {
+    return res.status(400).json({ error: 'Client et créneau requis.' });
+  }
+  const client = await db.get('SELECT id FROM clients WHERE id = ?', [client_id]);
+  if (!client) return res.status(404).json({ error: 'Client introuvable.' });
+
+  const existing = await db.get(
+    `SELECT id FROM bookings WHERE slot_datetime = ? AND status != 'annule'`,
+    [slot_datetime]
+  );
+  if (existing) return res.status(409).json({ error: 'Ce créneau est déjà pris.' });
+
+  const id = uuidv4();
+  await db.run('INSERT INTO bookings (id, client_id, message, slot_datetime, service_id, status) VALUES (?,?,?,?,?,?)',
+    [id, client_id, (message || '').trim().slice(0, 500), slot_datetime, service_id || null, 'confirme']);
+  res.json({ ok: true, id });
+});
+
 router.put('/bookings/:id', requireAdminAuth, async (req, res) => {
   const { status } = req.body;
   await db.run('UPDATE bookings SET status = ? WHERE id = ?', [status, req.params.id]);
