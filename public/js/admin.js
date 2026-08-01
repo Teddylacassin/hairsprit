@@ -103,6 +103,7 @@ const TABS = [
   { id: 'clients', label: 'Clients' },
   { id: 'rewards', label: 'Récompenses' },
   { id: 'services', label: 'Tarifs' },
+  { id: 'today', label: "Aujourd'hui" },
   { id: 'bookings', label: 'Réservations' },
   { id: 'stats', label: 'Statistiques' },
 ];
@@ -144,6 +145,7 @@ function renderTabContent() {
   if (state.tab === 'clients') return renderClientsTab(main);
   if (state.tab === 'rewards') return renderRewardsTab(main);
   if (state.tab === 'services') return renderServicesTab(main);
+  if (state.tab === 'today') return renderTodayTab(main);
   if (state.tab === 'bookings') return renderBookingsTab(main);
   if (state.tab === 'stats') return renderStatsTab(main);
 }
@@ -288,11 +290,11 @@ async function renderClientsTab(main) {
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Client</th><th>Téléphone</th><th>Adresse</th><th>Points</th><th>Membre depuis</th><th>PIN</th></tr></thead>
+        <thead><tr><th>Client</th><th>Téléphone</th><th>Adresse</th><th>Points</th><th>Membre depuis</th><th>PIN</th><th>Notes</th></tr></thead>
         <tbody>
-          ${state.clients.length === 0 ? `<tr><td colspan="6" style="text-align:center;color:var(--argent);">Aucun client trouvé.</td></tr>` : ''}
+          ${state.clients.length === 0 ? `<tr><td colspan="7" style="text-align:center;color:var(--argent);">Aucun client trouvé.</td></tr>` : ''}
           ${state.clients.map(c => `
-            <tr data-client-id="${c.id}">
+            <tr data-client-id="${c.id}" data-notes="${(c.admin_notes || '').replace(/"/g, '&quot;')}">
               <td>${c.prenom} ${c.nom}</td>
               <td>${c.telephone}</td>
               <td style="color:var(--argent);font-size:12.5px;">
@@ -301,12 +303,28 @@ async function renderClientsTab(main) {
               <td class="pts-cell">${c.points}</td>
               <td>${formatDate(c.created_at)}</td>
               <td><button class="btn btn-outline reset-pin-btn" style="width:auto;padding:7px 10px;font-size:11.5px;">Réinitialiser</button></td>
+              <td style="color:var(--argent);font-size:12px;max-width:140px;">
+                ${c.admin_notes ? `<span>${c.admin_notes}</span> ` : ''}<button class="edit-notes-btn" title="Modifier les notes" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📝</button>
+              </td>
             </tr>
           `).join('')}
         </tbody>
       </table>
     </div>
   `;
+  main.querySelectorAll('.edit-notes-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('[data-client-id]');
+      const id = row.dataset.clientId;
+      const current = row.dataset.notes || '';
+      const notes = prompt('Notes privées (digicode, parking, étage...) :', current);
+      if (notes === null) return;
+      try {
+        await api(`/client/${id}/notes`, { method: 'PUT', body: JSON.stringify({ notes }) });
+        renderClientsTab(main);
+      } catch (err) { alert(err.message); }
+    };
+  });
   main.querySelectorAll('.reset-pin-btn').forEach(btn => {
     btn.onclick = async () => {
       const row = btn.closest('[data-client-id]');
@@ -524,6 +542,67 @@ async function renderServicesTab(main) {
   };
 }
 
+/* ---------------- TODAY TAB ---------------- */
+function toICSDate(iso) {
+  return new Date(iso).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+}
+
+function buildICSLink(booking, durationMinutes) {
+  const start = new Date(booking.slot_datetime);
+  const end = new Date(start.getTime() + (durationMinutes || 120) * 60000);
+  const ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'BEGIN:VEVENT',
+    `DTSTART:${toICSDate(start.toISOString())}`,
+    `DTEND:${toICSDate(end.toISOString())}`,
+    `SUMMARY:Coupe - ${booking.prenom} ${booking.nom}`,
+    booking.address ? `LOCATION:${booking.address.replace(/,/g, '\\,')}` : '',
+    `DESCRIPTION:${booking.telephone}${booking.service_name ? ' - ' + booking.service_name : ''}`,
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ].filter(Boolean).join('\r\n');
+  return 'data:text/calendar;charset=utf8,' + encodeURIComponent(ics);
+}
+
+async function renderTodayTab(main) {
+  main.innerHTML = `<div class="loading-spin"></div>`;
+  let bookings, schedule;
+  try {
+    const [bookingsRes, scheduleRes] = await Promise.all([api('/bookings'), api('/schedule')]);
+    bookings = bookingsRes.bookings;
+    schedule = scheduleRes.settings;
+  } catch (e) {
+    main.innerHTML = `<div class="error-msg">${e.message}</div>`;
+    return;
+  }
+
+  const now = new Date();
+  const todayKey = now.toISOString().slice(0, 10);
+  const todayBookings = bookings
+    .filter(b => b.status === 'confirme' && b.slot_datetime && new Date(b.slot_datetime).toISOString().slice(0, 10) === todayKey)
+    .sort((a, b) => new Date(a.slot_datetime) - new Date(b.slot_datetime));
+
+  main.innerHTML = `
+    <div class="section-title" style="margin-top:0;">Planning du ${now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+    ${todayBookings.length === 0 ? `<div class="empty-state">Aucun rendez-vous confirmé aujourd'hui.</div>` : ''}
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      ${todayBookings.map(b => `
+        <div class="reward-admin-row" style="flex-direction:column;align-items:stretch;gap:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+            <div style="font-family:var(--font-mono);font-size:18px;font-weight:600;">${new Date(b.slot_datetime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
+            <a href="${buildICSLink(b, schedule.slot_duration_minutes)}" title="Ajouter au calendrier" style="text-decoration:none;">📅</a>
+          </div>
+          <div style="font-weight:600;font-size:14.5px;">${b.prenom} ${b.nom} · ${b.telephone}</div>
+          ${b.service_name ? `<div style="color:var(--succes);font-size:13px;">${b.service_name} · ${parseFloat(b.service_price).toFixed(2)}€</div>` : ''}
+          ${b.address ? `<div style="color:var(--argent);font-size:13px;">📍 ${b.address} <button class="copy-address-btn" data-address="${b.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button> <a href="https://www.waze.com/ul?q=${encodeURIComponent(b.address)}&navigate=yes" target="_blank" rel="noopener" title="Ouvrir dans Waze" style="text-decoration:none;padding:2px 4px;">🚗</a></div>` : ''}
+          ${b.admin_notes ? `<div style="color:var(--argent);font-size:12.5px;">📝 ${b.admin_notes}</div>` : ''}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
 /* ---------------- BOOKINGS TAB ---------------- */
 const WEEKDAYS = [
   { value: 1, label: 'Lun' },
@@ -646,7 +725,7 @@ async function renderBookingsTab(main) {
             </div>
             <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
           </div>
-          ${b.slot_datetime ? `<div style="font-family:var(--font-mono);font-size:14px;">${formatDate(b.slot_datetime)}</div>` : ''}
+          ${b.slot_datetime ? `<div style="font-family:var(--font-mono);font-size:14px;display:flex;align-items:center;gap:8px;">${formatDate(b.slot_datetime)}${b.status === 'confirme' ? ` <a href="${buildICSLink(b, schedule.slot_duration_minutes)}" title="Ajouter au calendrier" style="text-decoration:none;">📅</a>` : ''}</div>` : ''}
           ${b.service_name ? `<div style="font-size:13.5px;color:var(--succes);">${b.service_name} · ${parseFloat(b.service_price).toFixed(2)}€</div>` : ''}
           <div style="font-size:13.5px;">${b.message || '—'}</div>
           <div style="color:var(--argent);font-size:12px;">Demande envoyée le ${formatDate(b.created_at)}</div>
