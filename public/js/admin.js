@@ -294,9 +294,9 @@ async function renderClientsTab(main) {
         <tbody>
           ${state.clients.length === 0 ? `<tr><td colspan="7" style="text-align:center;color:var(--argent);">Aucun client trouvé.</td></tr>` : ''}
           ${state.clients.map(c => `
-            <tr data-client-id="${c.id}" data-notes="${(c.admin_notes || '').replace(/"/g, '&quot;')}">
+            <tr data-client-id="${c.id}" data-notes="${(c.admin_notes || '').replace(/"/g, '&quot;')}" data-telephone="${c.telephone}" data-address="${(c.address || '').replace(/"/g, '&quot;')}">
               <td>${c.prenom} ${c.nom}</td>
-              <td>${c.telephone}</td>
+              <td>${c.telephone} <button class="edit-contact-btn" title="Modifier téléphone/adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">✏️</button></td>
               <td style="color:var(--argent);font-size:12.5px;">
                 ${c.address ? `${c.address} <button class="copy-address-btn" data-address="${c.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button> <a href="https://www.waze.com/ul?q=${encodeURIComponent(c.address)}&navigate=yes" target="_blank" rel="noopener" title="Ouvrir dans Waze" style="text-decoration:none;padding:2px 4px;">🚗</a>` : '—'}
               </td>
@@ -312,6 +312,22 @@ async function renderClientsTab(main) {
       </table>
     </div>
   `;
+  main.querySelectorAll('.edit-contact-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('[data-client-id]');
+      const id = row.dataset.clientId;
+      const currentTel = row.dataset.telephone || '';
+      const currentAddr = row.dataset.address || '';
+      const newTel = prompt('Téléphone :', currentTel);
+      if (newTel === null) return;
+      const newAddr = prompt('Adresse :', currentAddr);
+      if (newAddr === null) return;
+      try {
+        await api(`/client/${id}`, { method: 'PUT', body: JSON.stringify({ telephone: newTel, address: newAddr }) });
+        renderClientsTab(main);
+      } catch (err) { alert(err.message); }
+    };
+  });
   main.querySelectorAll('.edit-notes-btn').forEach(btn => {
     btn.onclick = async () => {
       const row = btn.closest('[data-client-id]');
