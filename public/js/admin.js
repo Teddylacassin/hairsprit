@@ -290,11 +290,11 @@ async function renderClientsTab(main) {
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Client</th><th>Téléphone</th><th>Adresse</th><th>Points</th><th>Membre depuis</th><th>PIN</th><th>Notes</th></tr></thead>
+        <thead><tr><th>Client</th><th>Téléphone</th><th>Adresse</th><th>Points</th><th>Membre depuis</th><th>PIN</th><th>Notes</th><th>RDV</th></tr></thead>
         <tbody>
-          ${state.clients.length === 0 ? `<tr><td colspan="7" style="text-align:center;color:var(--argent);">Aucun client trouvé.</td></tr>` : ''}
+          ${state.clients.length === 0 ? `<tr><td colspan="8" style="text-align:center;color:var(--argent);">Aucun client trouvé.</td></tr>` : ''}
           ${state.clients.map(c => `
-            <tr data-client-id="${c.id}" data-notes="${(c.admin_notes || '').replace(/"/g, '&quot;')}" data-telephone="${c.telephone}" data-address="${(c.address || '').replace(/"/g, '&quot;')}">
+            <tr data-client-id="${c.id}" data-notes="${(c.admin_notes || '').replace(/"/g, '&quot;')}" data-telephone="${c.telephone}" data-address="${(c.address || '').replace(/"/g, '&quot;')}" data-prenom="${c.prenom.replace(/"/g, '&quot;')}" data-nom="${c.nom.replace(/"/g, '&quot;')}">
               <td>${c.prenom} ${c.nom}</td>
               <td>${c.telephone} <button class="edit-contact-btn" title="Modifier téléphone/adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">✏️</button></td>
               <td style="color:var(--argent);font-size:12.5px;">
@@ -306,12 +306,24 @@ async function renderClientsTab(main) {
               <td style="color:var(--argent);font-size:12px;max-width:140px;">
                 ${c.admin_notes ? `<span>${c.admin_notes}</span> ` : ''}<button class="edit-notes-btn" title="Modifier les notes" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📝</button>
               </td>
+              <td><button class="btn btn-outline book-client-btn" style="width:auto;padding:7px 10px;font-size:11.5px;">📅 RDV</button></td>
             </tr>
           `).join('')}
         </tbody>
       </table>
     </div>
+    <div id="book-modal-zone"></div>
   `;
+  main.querySelectorAll('.book-client-btn').forEach(btn => {
+    btn.onclick = () => {
+      const row = btn.closest('[data-client-id]');
+      openBookClientPanel(main, {
+        id: row.dataset.clientId,
+        prenom: row.dataset.prenom,
+        nom: row.dataset.nom,
+      });
+    };
+  });
   main.querySelectorAll('.edit-contact-btn').forEach(btn => {
     btn.onclick = async () => {
       const row = btn.closest('[data-client-id]');
@@ -389,6 +401,78 @@ async function renderClientsTab(main) {
   };
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
+}
+
+function openBookClientPanel(main, client) {
+  const zone = main.querySelector('#book-modal-zone');
+  zone.innerHTML = `
+    <div class="scanner-box" style="max-width:100%;margin-top:16px;">
+      <div class="section-title" style="margin-top:0;">Prendre RDV pour ${client.prenom} ${client.nom}</div>
+      <div class="field" style="max-width:220px;">
+        <label>Choisir un jour</label>
+        <input type="date" id="book-date-picker" />
+      </div>
+      <div id="book-slots-zone" style="margin-top:10px;"></div>
+      <button class="btn btn-ghost" id="cancel-book-panel" style="margin-top:10px;">Annuler</button>
+    </div>
+  `;
+  zone.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  zone.querySelector('#cancel-book-panel').onclick = () => { zone.innerHTML = ''; };
+
+  zone.querySelector('#book-date-picker').onchange = async (e) => {
+    const slotsZone = zone.querySelector('#book-slots-zone');
+    const date = e.target.value;
+    if (!date) { slotsZone.innerHTML = ''; return; }
+    slotsZone.innerHTML = `<div class="loading-spin"></div>`;
+    let services = [];
+    try {
+      const [slotsRes, servicesRes] = await Promise.all([api(`/slots-for-date/${date}`), api('/services')]);
+      services = servicesRes.services;
+      if (slotsRes.slots.length === 0) {
+        slotsZone.innerHTML = `<div class="empty-state">Aucun créneau ce jour (jour fermé ou horaires non définis).</div>`;
+        return;
+      }
+      slotsZone.innerHTML = `
+        ${services.length > 0 ? `
+          <div class="field">
+            <label>Prestation (optionnel)</label>
+            <select id="book-service-select" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:10px;border-radius:8px;">
+              <option value="">— Aucune —</option>
+              ${services.map(s => `<option value="${s.id}">${s.name} (${parseFloat(s.price).toFixed(2)}€)</option>`).join('')}
+            </select>
+          </div>
+        ` : ''}
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
+          ${slotsRes.slots.filter(s => !s.taken && !s.blocked).map(s => `
+            <button type="button" class="btn btn-outline book-slot-pick-btn" data-datetime="${s.datetime}" style="width:auto;padding:10px 14px;font-size:13px;">
+              ${new Date(s.datetime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+            </button>
+          `).join('')}
+        </div>
+      `;
+      slotsZone.querySelectorAll('.book-slot-pick-btn').forEach(sbtn => {
+        sbtn.onclick = async () => {
+          const serviceSelect = slotsZone.querySelector('#book-service-select');
+          sbtn.disabled = true;
+          sbtn.textContent = '...';
+          try {
+            await api('/bookings', {
+              method: 'POST',
+              body: JSON.stringify({
+                client_id: client.id,
+                slot_datetime: sbtn.dataset.datetime,
+                service_id: serviceSelect ? serviceSelect.value || null : null,
+              }),
+            });
+            zone.innerHTML = `<div class="success-msg" style="margin-top:16px;">✓ Rendez-vous ajouté pour ${client.prenom} ${client.nom} !</div>`;
+          } catch (err) { alert(err.message); sbtn.disabled = false; }
+        };
+      });
+    } catch (err) {
+      slotsZone.innerHTML = `<div class="error-msg">${err.message}</div>`;
+    }
+  };
 }
 
 /* ---------------- REWARDS TAB ---------------- */
