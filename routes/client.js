@@ -4,6 +4,7 @@ const QRCode = require('qrcode');
 const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { signToken, requireClientAuth } = require('../middleware/auth');
+const { sendBookingAlertEmail } = require('../notify');
 
 const router = express.Router();
 
@@ -162,6 +163,53 @@ router.get('/services', requireClientAuth, async (req, res) => {
   res.json({ services });
 });
 
+// GET /api/client/products -> active products (boutique) list
+router.get('/products', requireClientAuth, async (req, res) => {
+  const products = await db.all('SELECT id, name, price, description, image_url FROM products WHERE active = 1 ORDER BY sort_order ASC');
+  res.json({ products });
+});
+
+// POST /api/client/order -> place a product order
+router.post('/order', requireClientAuth, async (req, res) => {
+  const { items, note } = req.body;
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Panier vide.' });
+  }
+  const orderId = uuidv4();
+  const dbClient = await db.pool.connect();
+  try {
+    await dbClient.query('BEGIN');
+    await dbClient.query('INSERT INTO orders (id, client_id, note) VALUES ($1,$2,$3)',
+      [orderId, req.clientId, (note || '').trim().slice(0, 500)]);
+    for (const item of items) {
+      const product = await dbClient.query('SELECT * FROM products WHERE id = $1', [item.product_id]);
+      if (product.rows.length === 0) continue;
+      const p = product.rows[0];
+      const qty = Math.max(1, parseInt(item.quantity, 10) || 1);
+      await dbClient.query('INSERT INTO order_items (id, order_id, product_id, product_name, product_price, quantity) VALUES ($1,$2,$3,$4,$5,$6)',
+        [uuidv4(), orderId, p.id, p.name, p.price, qty]);
+    }
+    await dbClient.query('COMMIT');
+  } catch (e) {
+    await dbClient.query('ROLLBACK');
+    throw e;
+  } finally {
+    dbClient.release();
+  }
+  res.json({ ok: true, orderId });
+});
+
+// GET /api/client/orders -> own product orders
+router.get('/orders', requireClientAuth, async (req, res) => {
+  const orders = await db.all('SELECT * FROM orders WHERE client_id = ? ORDER BY created_at DESC', [req.clientId]);
+  const items = await db.all('SELECT * FROM order_items');
+  const withItems = orders.map(o => ({
+    ...o,
+    items: items.filter(i => i.order_id === o.id),
+  }));
+  res.json({ orders: withItems });
+});
+
 // GET /api/client/available-slots -> compute upcoming available slots from schedule settings
 router.get('/available-slots', requireClientAuth, async (req, res) => {
   const settings = await db.get('SELECT * FROM schedule_settings WHERE id = ?', ['default']);
@@ -253,6 +301,14 @@ router.post('/booking', requireClientAuth, async (req, res) => {
 
   await db.run('INSERT INTO bookings (id, client_id, message, slot_datetime, service_id) VALUES (?,?,?,?,?)',
     [id, req.clientId, (message || '').trim().slice(0, 500), slot_datetime || null, service_id || null]);
+
+  const client = await db.get('SELECT * FROM clients WHERE id = ?', [req.clientId]);
+  let serviceName = null;
+  if (service_id) {
+    const service = await db.get('SELECT name FROM services WHERE id = ?', [service_id]);
+    serviceName = service ? service.name : null;
+  }
+  sendBookingAlertEmail({ client, message: (message || '').trim(), slotDatetime: slot_datetime, serviceName }).catch(() => {});
 
   res.json({ ok: true, bookingId: id });
 });
