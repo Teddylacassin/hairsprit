@@ -15,6 +15,7 @@ async function sendBookingAlertEmail({ client, message, slotDatetime, serviceNam
   const dateLabel = slotDatetime
     ? new Date(slotDatetime).toLocaleString('fr-FR', {
         weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+        timeZone: 'Europe/Brussels',
       })
     : 'Créneau non précisé';
 
