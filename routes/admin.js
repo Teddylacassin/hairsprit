@@ -6,6 +6,15 @@ const { signToken, requireAdminAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Convertit une date+heure exprimée en heure de Belgique vers l'instant UTC correspondant
+function zonedTimeToUtc(dateStr, hh, mm, timeZone) {
+  const naiveUTC = new Date(`${dateStr}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00Z`);
+  const tzDate = new Date(naiveUTC.toLocaleString('en-US', { timeZone }));
+  const utcDate = new Date(naiveUTC.toLocaleString('en-US', { timeZone: 'UTC' }));
+  const offset = utcDate.getTime() - tzDate.getTime();
+  return new Date(naiveUTC.getTime() + offset);
+}
+
 function clientPublic(client) {
   return {
     id: client.id,
@@ -276,6 +285,65 @@ router.delete('/services/:id', requireAdminAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// PRODUCTS (BOUTIQUE) CRUD
+router.get('/products', requireAdminAuth, async (req, res) => {
+  const products = await db.all('SELECT * FROM products ORDER BY sort_order ASC');
+  res.json({ products });
+});
+
+router.post('/products', requireAdminAuth, async (req, res) => {
+  const { name, price, description, image_url } = req.body;
+  if (!name || price === undefined || price === '') return res.status(400).json({ error: 'Nom et prix requis.' });
+  const id = uuidv4();
+  const maxOrderRow = await db.get('SELECT COALESCE(MAX(sort_order),0) as m FROM products');
+  const maxOrder = parseInt(maxOrderRow.m, 10);
+  await db.run('INSERT INTO products (id, name, price, description, image_url, sort_order) VALUES (?,?,?,?,?,?)',
+    [id, name.trim(), parseFloat(price), (description || '').trim(), (image_url || '').trim() || null, maxOrder + 1]);
+  res.json({ ok: true, id });
+});
+
+router.put('/products/:id', requireAdminAuth, async (req, res) => {
+  const product = await db.get('SELECT * FROM products WHERE id = ?', [req.params.id]);
+  if (!product) return res.status(404).json({ error: 'Produit introuvable.' });
+  const { name, price, description, image_url, active } = req.body;
+  await db.run('UPDATE products SET name=?, price=?, description=?, image_url=?, active=? WHERE id=?', [
+    name !== undefined ? name.trim() : product.name,
+    price !== undefined ? parseFloat(price) : product.price,
+    description !== undefined ? description.trim() : product.description,
+    image_url !== undefined ? ((image_url || '').trim() || null) : product.image_url,
+    active !== undefined ? (active ? 1 : 0) : product.active,
+    req.params.id,
+  ]);
+  res.json({ ok: true });
+});
+
+router.delete('/products/:id', requireAdminAuth, async (req, res) => {
+  await db.run('DELETE FROM products WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// GET /api/admin/orders -> all product orders with items
+router.get('/orders', requireAdminAuth, async (req, res) => {
+  const orders = await db.all(`
+    SELECT o.id, o.status, o.note, o.created_at, c.nom, c.prenom, c.telephone, c.address
+    FROM orders o JOIN clients c ON c.id = o.client_id
+    ORDER BY o.created_at DESC
+  `);
+  const items = await db.all('SELECT * FROM order_items');
+  const withItems = orders.map(o => ({
+    ...o,
+    items: items.filter(i => i.order_id === o.id),
+  }));
+  res.json({ orders: withItems });
+});
+
+// PUT /api/admin/orders/:id -> update order status (e.g. mark as delivered)
+router.put('/orders/:id', requireAdminAuth, async (req, res) => {
+  const { status } = req.body;
+  await db.run('UPDATE orders SET status = ? WHERE id = ?', [status, req.params.id]);
+  res.json({ ok: true });
+});
+
 // GET /api/admin/schedule -> get schedule settings
 router.get('/schedule', requireAdminAuth, async (req, res) => {
   const settings = await db.get('SELECT * FROM schedule_settings WHERE id = ?', ['default']);
@@ -327,11 +395,8 @@ router.get('/slots-for-date/:date', requireAdminAuth, async (req, res) => {
   const [endH, endM] = settings.end_time.split(':').map(Number);
   const duration = settings.slot_duration_minutes;
 
-  const day = new Date(req.params.date + 'T00:00:00Z');
-  let cursor = new Date(day);
-  cursor.setUTCHours(startH, startM, 0, 0);
-  const dayEnd = new Date(day);
-  dayEnd.setUTCHours(endH, endM, 0, 0);
+  let cursor = zonedTimeToUtc(req.params.date, startH, startM, 'Europe/Brussels');
+  const dayEnd = zonedTimeToUtc(req.params.date, endH, endM, 'Europe/Brussels');
 
   const takenRows = await db.all(
     `SELECT slot_datetime FROM bookings WHERE slot_datetime IS NOT NULL AND status != 'annule'`
@@ -437,6 +502,13 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
     SELECT COUNT(*) c FROM clients WHERE created_at >= now() - interval '30 days'
   `);
 
+  const monthRevenueRow = await db.get(`
+    SELECT COALESCE(SUM(s.price),0) as total, COUNT(*) as c
+    FROM bookings b JOIN services s ON s.id = b.service_id
+    WHERE b.status = 'confirme'
+      AND date_trunc('month', b.slot_datetime) = date_trunc('month', now())
+  `);
+
   res.json({
     totalClients: parseInt(totalClientsRow.c, 10),
     totalVisits: parseInt(totalVisitsRow.c, 10),
@@ -444,6 +516,8 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
     totalPointsActive: parseInt(totalPointsActiveRow.s, 10),
     pendingBookings: parseInt(pendingBookingsRow.c, 10),
     newClients30: parseInt(newClients30Row.c, 10),
+    monthRevenue: parseFloat(monthRevenueRow.total),
+    monthRevenueCount: parseInt(monthRevenueRow.c, 10),
     last30: last30.map(r => ({ jour: r.jour, visites: parseInt(r.visites, 10) })),
     topClients,
   });
