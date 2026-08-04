@@ -8,6 +8,19 @@ const { sendBookingAlertEmail } = require('../notify');
 
 const router = express.Router();
 
+// Convertit une date+heure exprimée en heure de Belgique vers l'instant UTC correspondant
+// (gère automatiquement le changement heure d'été/hiver)
+function brusselsDateStr(date) {
+  return date.toLocaleDateString('en-CA', { timeZone: 'Europe/Brussels' });
+}
+function zonedTimeToUtc(dateStr, hh, mm, timeZone) {
+  const naiveUTC = new Date(`${dateStr}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00Z`);
+  const tzDate = new Date(naiveUTC.toLocaleString('en-US', { timeZone }));
+  const utcDate = new Date(naiveUTC.toLocaleString('en-US', { timeZone: 'UTC' }));
+  const offset = utcDate.getTime() - tzDate.getTime();
+  return new Date(naiveUTC.getTime() + offset);
+}
+
 function normalizePhone(tel) {
   return String(tel || '').replace(/[\s.\-()]/g, '');
 }
@@ -157,7 +170,12 @@ router.get('/rewards', requireClientAuth, async (req, res) => {
   res.json({ rewards });
 });
 
-// GET /api/client/services -> active services (tarifs) list
+// GET /api/client/public-services -> active services, no auth required (used by the public landing page)
+router.get('/public-services', async (req, res) => {
+  const services = await db.all('SELECT id, name, price, description FROM services WHERE active = 1 ORDER BY sort_order ASC');
+  res.json({ services });
+});
+
 router.get('/services', requireClientAuth, async (req, res) => {
   const services = await db.all('SELECT id, name, price, description FROM services WHERE active = 1 ORDER BY sort_order ASC');
   res.json({ services });
@@ -234,16 +252,14 @@ router.get('/available-slots', requireClientAuth, async (req, res) => {
   const slots = [];
   const now = new Date();
   for (let dayOffset = 0; dayOffset < 14; dayOffset++) {
-    const day = new Date(now);
-    day.setDate(day.getDate() + dayOffset);
-    day.setHours(0, 0, 0, 0);
-    if (!openDays.includes(day.getDay())) continue;
-    if (blockedDates.has(day.toISOString().slice(0, 10))) continue;
+    const dayInstant = new Date(now.getTime() + dayOffset * 86400000);
+    const dateStr = brusselsDateStr(dayInstant);
+    const weekday = new Date(dateStr + 'T12:00:00Z').getUTCDay();
+    if (!openDays.includes(weekday)) continue;
+    if (blockedDates.has(dateStr)) continue;
 
-    let cursor = new Date(day);
-    cursor.setHours(startH, startM, 0, 0);
-    const dayEnd = new Date(day);
-    dayEnd.setHours(endH, endM, 0, 0);
+    let cursor = zonedTimeToUtc(dateStr, startH, startM, 'Europe/Brussels');
+    const dayEnd = zonedTimeToUtc(dateStr, endH, endM, 'Europe/Brussels');
 
     while (cursor.getTime() + duration * 60000 <= dayEnd.getTime()) {
       if (cursor.getTime() > now.getTime()) {
