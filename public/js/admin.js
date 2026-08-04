@@ -103,6 +103,8 @@ const TABS = [
   { id: 'clients', label: 'Clients' },
   { id: 'rewards', label: 'Récompenses' },
   { id: 'services', label: 'Tarifs' },
+  { id: 'products', label: 'Boutique' },
+  { id: 'orders', label: 'Commandes' },
   { id: 'today', label: "Aujourd'hui" },
   { id: 'bookings', label: 'Réservations' },
   { id: 'stats', label: 'Statistiques' },
@@ -145,6 +147,8 @@ function renderTabContent() {
   if (state.tab === 'clients') return renderClientsTab(main);
   if (state.tab === 'rewards') return renderRewardsTab(main);
   if (state.tab === 'services') return renderServicesTab(main);
+  if (state.tab === 'products') return renderProductsTab(main);
+  if (state.tab === 'orders') return renderOrdersTab(main);
   if (state.tab === 'today') return renderTodayTab(main);
   if (state.tab === 'bookings') return renderBookingsTab(main);
   if (state.tab === 'stats') return renderStatsTab(main);
@@ -642,6 +646,161 @@ async function renderServicesTab(main) {
   };
 }
 
+/* ---------------- PRODUCTS (BOUTIQUE) TAB ---------------- */
+async function renderProductsTab(main) {
+  main.innerHTML = `<div class="loading-spin"></div>`;
+  let products;
+  try {
+    const res = await api('/products');
+    products = res.products;
+  } catch (e) {
+    main.innerHTML = `<div class="error-msg">${e.message}</div>`;
+    return;
+  }
+  main.innerHTML = `
+    <div class="section-title" style="margin-top:0;">Boutique</div>
+    <div class="rewards-admin-grid" id="products-list"></div>
+    <div class="section-title">Ajouter un produit</div>
+    <form id="new-product-form">
+      <div class="field"><label>Nom</label><input name="name" required placeholder="Ex : Cire coiffante" /></div>
+      <div class="field"><label>Prix (€)</label><input name="price" type="number" min="0" step="0.5" required /></div>
+      <div class="field"><label>Description</label><input name="description" placeholder="Détail du produit" /></div>
+      <div class="field"><label>Lien de la photo (optionnel)</label><input name="image_url" placeholder="https://..." /></div>
+      <button class="btn btn-outline" type="submit">Ajouter</button>
+    </form>
+  `;
+  const list = document.getElementById('products-list');
+  list.innerHTML = products.map(p => `
+    <div class="reward-admin-row" data-id="${p.id}" style="align-items:flex-start;">
+      ${p.image_url ? `<img src="${p.image_url}" alt="${p.name}" style="width:56px;height:56px;object-fit:cover;border-radius:8px;flex-shrink:0;" />` : ''}
+      <div class="grow">
+        <input class="edit-name" value="${p.name.replace(/"/g, '&quot;')}" style="width:100%;margin-bottom:6px;" />
+        <input class="edit-desc" value="${(p.description || '').replace(/"/g, '&quot;')}" style="width:100%;margin-bottom:6px;" />
+        <input class="edit-image" value="${(p.image_url || '').replace(/"/g, '&quot;')}" placeholder="Lien de la photo" style="width:100%;" />
+      </div>
+      <input class="edit-price" type="number" min="0" step="0.5" value="${p.price}" style="width:80px;" />
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--argent);">
+        <input class="edit-active" type="checkbox" ${p.active ? 'checked' : ''} /> Actif
+      </label>
+      <button class="btn btn-outline save-product" style="width:auto;padding:10px 14px;">Enregistrer</button>
+      <button class="btn btn-danger delete-product" style="width:auto;padding:10px 14px;">Supprimer</button>
+    </div>
+  `).join('') || `<div class="empty-state">Aucun produit configuré.</div>`;
+
+  list.querySelectorAll('.save-product').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('.reward-admin-row');
+      const id = row.dataset.id;
+      try {
+        await api(`/products/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: row.querySelector('.edit-name').value,
+            description: row.querySelector('.edit-desc').value,
+            image_url: row.querySelector('.edit-image').value,
+            price: row.querySelector('.edit-price').value,
+            active: row.querySelector('.edit-active').checked,
+          }),
+        });
+        renderProductsTab(main);
+      } catch (e) { alert(e.message); }
+    };
+  });
+  list.querySelectorAll('.delete-product').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('.reward-admin-row');
+      if (!confirm('Supprimer ce produit ?')) return;
+      try {
+        await api(`/products/${row.dataset.id}`, { method: 'DELETE' });
+        renderProductsTab(main);
+      } catch (e) { alert(e.message); }
+    };
+  });
+
+  document.getElementById('new-product-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api('/products', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: fd.get('name'),
+          price: fd.get('price'),
+          description: fd.get('description'),
+          image_url: fd.get('image_url'),
+        }),
+      });
+      renderProductsTab(main);
+    } catch (err) { alert(err.message); }
+  };
+}
+
+/* ---------------- ORDERS TAB ---------------- */
+async function renderOrdersTab(main) {
+  main.innerHTML = `<div class="loading-spin"></div>`;
+  let orders;
+  try {
+    const res = await api('/orders');
+    orders = res.orders;
+  } catch (e) {
+    main.innerHTML = `<div class="error-msg">${e.message}</div>`;
+    return;
+  }
+  const visibleOrders = orders.filter(o => o.status !== 'annule');
+
+  main.innerHTML = `
+    <div class="section-title" style="margin-top:0;">Commandes boutique</div>
+    ${visibleOrders.length === 0 ? `<div class="empty-state">Aucune commande pour le moment.</div>` : ''}
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      ${visibleOrders.map(o => {
+        const total = o.items.reduce((sum, i) => sum + parseFloat(i.product_price) * i.quantity, 0);
+        return `
+        <div class="reward-admin-row" data-id="${o.id}" style="flex-direction:column;align-items:stretch;gap:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+            <div>
+              <div style="font-weight:600;font-size:14.5px;">${o.prenom} ${o.nom}</div>
+              <div style="color:var(--argent);font-size:12.5px;">${o.telephone}</div>
+              ${o.address ? `<div style="color:var(--argent);font-size:12px;">📍 ${o.address} <button class="copy-address-btn" data-address="${o.address.replace(/"/g, '&quot;')}" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button> <a href="https://www.waze.com/ul?q=${encodeURIComponent(o.address)}&navigate=yes" target="_blank" rel="noopener" style="text-decoration:none;padding:2px 4px;">🚗</a></div>` : ''}
+            </div>
+            <span class="pill status-${o.status}">${o.status.replace('_', ' ')}</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            ${o.items.map(i => `<div style="font-size:13.5px;">${i.quantity} × ${i.product_name} — ${(parseFloat(i.product_price) * i.quantity).toFixed(2)}€</div>`).join('')}
+          </div>
+          <div style="font-family:var(--font-mono);color:var(--succes);font-size:14px;">Total : ${total.toFixed(2)}€</div>
+          ${o.note ? `<div style="font-size:13px;color:var(--argent);">${o.note}</div>` : ''}
+          <div style="color:var(--argent);font-size:12px;">Commandé le ${formatDate(o.created_at)}</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${o.status === 'en_attente' ? `
+              <button class="btn btn-outline deliver-btn" style="width:auto;flex:1;padding:10px 14px;font-size:13px;">✓ Marquer livrée</button>
+              <button class="btn btn-danger cancel-order-btn" style="width:auto;flex:1;padding:10px 14px;font-size:13px;">✕ Annuler</button>
+            ` : `
+              <button class="btn btn-outline reopen-order-btn" style="width:auto;padding:10px 14px;font-size:13px;">Remettre en attente</button>
+            `}
+          </div>
+        </div>
+      `;
+      }).join('')}
+    </div>
+  `;
+
+  async function updateOrderStatus(id, status) {
+    try {
+      await api(`/orders/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
+      renderOrdersTab(main);
+    } catch (err) { alert(err.message); }
+  }
+  main.querySelectorAll('.deliver-btn').forEach(btn => {
+    btn.onclick = () => updateOrderStatus(btn.closest('[data-id]').dataset.id, 'livre');
+  });
+  main.querySelectorAll('.cancel-order-btn').forEach(btn => {
+    btn.onclick = () => updateOrderStatus(btn.closest('[data-id]').dataset.id, 'annule');
+  });
+  main.querySelectorAll('.reopen-order-btn').forEach(btn => {
+    btn.onclick = () => updateOrderStatus(btn.closest('[data-id]').dataset.id, 'en_attente');
+  });
+}
+
 /* ---------------- TODAY TAB ---------------- */
 function toICSDate(iso) {
   return new Date(iso).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
@@ -1003,8 +1162,15 @@ async function renderStatsTab(main) {
   }
   const s = state.stats;
   const maxVisits = Math.max(1, ...s.last30.map(d => d.visites));
+  const monthLabel = new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
   main.innerHTML = `
-    <div class="section-title" style="margin-top:0;">Vue d'ensemble</div>
+    <div class="section-title" style="margin-top:0;">Chiffre d'affaires — ${monthLabel}</div>
+    <div class="scanner-box" style="max-width:100%;">
+      <div style="font-family:var(--font-mono);font-size:38px;font-weight:600;color:var(--succes);">${s.monthRevenue.toFixed(2)}€</div>
+      <div style="color:var(--argent);font-size:12.5px;margin-top:4px;">${s.monthRevenueCount} prestation${s.monthRevenueCount > 1 ? 's' : ''} confirmée${s.monthRevenueCount > 1 ? 's' : ''} avec tarif ce mois-ci</div>
+    </div>
+
+    <div class="section-title">Vue d'ensemble</div>
     <div class="stats-grid">
       <div class="stat-card"><div class="stat-value">${s.totalClients}</div><div class="stat-label">Clients inscrits</div></div>
       <div class="stat-card"><div class="stat-value">${s.totalVisits}</div><div class="stat-label">Visites totales</div></div>
