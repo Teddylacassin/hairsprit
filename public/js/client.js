@@ -8,6 +8,8 @@ const state = {
   history: [],
   bookings: [],
   services: [],
+  products: [],
+  cart: {},
   qrcode: null,
   authMode: 'login', // 'login' | 'register'
   authStep: 'form', // 'form' | 'pin' | 'setup-pin'
