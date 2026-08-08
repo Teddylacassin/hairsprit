@@ -44,7 +44,7 @@ function isValidPin(pin) {
 // POST /api/client/register
 router.post('/register', async (req, res) => {
   try {
-    const { nom, prenom, telephone, address, pin } = req.body;
+    const { nom, prenom, telephone, address, pin, ref } = req.body;
     if (!nom || !prenom || !telephone) {
       return res.status(400).json({ error: 'Nom, prénom et téléphone sont obligatoires.' });
     }
@@ -66,6 +66,19 @@ router.post('/register', async (req, res) => {
     const pinHash = bcrypt.hashSync(pin, 10);
     await db.run('INSERT INTO clients (id, nom, prenom, telephone, address, qr_token, points, pin_hash) VALUES (?,?,?,?,?,?,0,?)',
       [id, nom.trim(), prenom.trim(), tel, (address || '').trim() || null, qrToken, pinHash]);
+
+    // Bonus de parrainage : si le client arrive via le lien/QR d'un ami, les deux reçoivent 1 point
+    if (ref) {
+      const referrer = await db.get('SELECT * FROM clients WHERE qr_token = ?', [ref]);
+      if (referrer && referrer.id !== id) {
+        await db.run('UPDATE clients SET points = points + 1 WHERE id = ?', [id]);
+        await db.run('INSERT INTO visits (id, client_id, points_added, note) VALUES (?,?,?,?)',
+          [uuidv4(), id, 1, 'Bonus de bienvenue - parrainage']);
+        await db.run('UPDATE clients SET points = points + 1 WHERE id = ?', [referrer.id]);
+        await db.run('INSERT INTO visits (id, client_id, points_added, note) VALUES (?,?,?,?)',
+          [uuidv4(), referrer.id, 1, `Parrainage - ${nom.trim()} ${prenom.trim()} a rejoint Hairsprit`]);
+      }
+    }
 
     const client = await db.get('SELECT * FROM clients WHERE id = ?', [id]);
     const token = signToken({ id, role: 'client' });
@@ -142,7 +155,7 @@ router.put('/me', requireClientAuth, async (req, res) => {
   res.json({ client: clientPublic(client) });
 });
 
-// GET /api/client/qrcode -> data URL of QR encoding qr_token
+// GET /api/client/qrcode -> data URL of QR encoding qr_token (used by admin scanner)
 router.get('/qrcode', requireClientAuth, async (req, res) => {
   const client = await db.get('SELECT * FROM clients WHERE id = ?', [req.clientId]);
   if (!client) return res.status(404).json({ error: 'Client introuvable.' });
@@ -153,6 +166,23 @@ router.get('/qrcode', requireClientAuth, async (req, res) => {
       color: { dark: '#0B0B0C', light: '#F7F6F3' },
     });
     res.json({ qrcode: dataUrl });
+  } catch (e) {
+    res.status(500).json({ error: 'Erreur de génération du QR code.' });
+  }
+});
+
+// GET /api/client/referral-qrcode -> QR code encoding the client's personal referral link
+router.get('/referral-qrcode', requireClientAuth, async (req, res) => {
+  const client = await db.get('SELECT * FROM clients WHERE id = ?', [req.clientId]);
+  if (!client) return res.status(404).json({ error: 'Client introuvable.' });
+  const referralUrl = `https://hairsprit.onrender.com/app?ref=${client.qr_token}`;
+  try {
+    const dataUrl = await QRCode.toDataURL(referralUrl, {
+      margin: 1,
+      width: 320,
+      color: { dark: '#0B0B0C', light: '#F7F6F3' },
+    });
+    res.json({ qrcode: dataUrl, url: referralUrl });
   } catch (e) {
     res.status(500).json({ error: 'Erreur de génération du QR code.' });
   }
@@ -179,53 +209,6 @@ router.get('/public-services', async (req, res) => {
 router.get('/services', requireClientAuth, async (req, res) => {
   const services = await db.all('SELECT id, name, price, description FROM services WHERE active = 1 ORDER BY sort_order ASC');
   res.json({ services });
-});
-
-// GET /api/client/products -> active products (boutique) list
-router.get('/products', requireClientAuth, async (req, res) => {
-  const products = await db.all('SELECT id, name, price, description, image_url FROM products WHERE active = 1 ORDER BY sort_order ASC');
-  res.json({ products });
-});
-
-// POST /api/client/order -> place a product order
-router.post('/order', requireClientAuth, async (req, res) => {
-  const { items, note } = req.body;
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'Panier vide.' });
-  }
-  const orderId = uuidv4();
-  const dbClient = await db.pool.connect();
-  try {
-    await dbClient.query('BEGIN');
-    await dbClient.query('INSERT INTO orders (id, client_id, note) VALUES ($1,$2,$3)',
-      [orderId, req.clientId, (note || '').trim().slice(0, 500)]);
-    for (const item of items) {
-      const product = await dbClient.query('SELECT * FROM products WHERE id = $1', [item.product_id]);
-      if (product.rows.length === 0) continue;
-      const p = product.rows[0];
-      const qty = Math.max(1, parseInt(item.quantity, 10) || 1);
-      await dbClient.query('INSERT INTO order_items (id, order_id, product_id, product_name, product_price, quantity) VALUES ($1,$2,$3,$4,$5,$6)',
-        [uuidv4(), orderId, p.id, p.name, p.price, qty]);
-    }
-    await dbClient.query('COMMIT');
-  } catch (e) {
-    await dbClient.query('ROLLBACK');
-    throw e;
-  } finally {
-    dbClient.release();
-  }
-  res.json({ ok: true, orderId });
-});
-
-// GET /api/client/orders -> own product orders
-router.get('/orders', requireClientAuth, async (req, res) => {
-  const orders = await db.all('SELECT * FROM orders WHERE client_id = ? ORDER BY created_at DESC', [req.clientId]);
-  const items = await db.all('SELECT * FROM order_items');
-  const withItems = orders.map(o => ({
-    ...o,
-    items: items.filter(i => i.order_id === o.id),
-  }));
-  res.json({ orders: withItems });
 });
 
 // GET /api/client/available-slots -> compute upcoming available slots from schedule settings
