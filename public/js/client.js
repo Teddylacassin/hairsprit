@@ -8,8 +8,6 @@ const state = {
   history: [],
   bookings: [],
   services: [],
-  products: [],
-  cart: {},
   qrcode: null,
   authMode: 'login', // 'login' | 'register'
   authStep: 'form', // 'form' | 'pin' | 'setup-pin'
@@ -273,6 +271,7 @@ function renderAuthRegister() {
         <p>Carte de fidélité digitale</p>
       </div>
 
+      ${state.referralCode ? `<div class="success-msg">🎁 Vous avez été invité(e) par un ami — vous recevrez 1 point bonus à l'inscription !</div>` : ''}
       ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
 
       <form id="auth-form" style="margin-top:26px;">
@@ -328,6 +327,7 @@ function renderAuthRegister() {
           telephone: fd.get('telephone'),
           address: fd.get('address'),
           pin: fd.get('pin'),
+          ref: state.referralCode || undefined,
         }),
       });
       saveToken(res.token);
@@ -525,11 +525,15 @@ function renderDashboardTabContent() {
         </div>
       </div>
       <div class="card-flip-note">${initials} · Carte n°${c.id.slice(0, 8).toUpperCase()}</div>
-      <a href="https://g.page/r/CRa_yp8Pnc2EEBM/review" target="_blank" rel="noopener" class="btn btn-outline" style="text-decoration:none;text-align:center;display:block;">
+      <a href="https://g.page/r/CRa_yp8Pnc2EEBM/review" target="_blank" rel="noopener" class="btn btn-outline" style="text-decoration:none;text-align:center;display:block;margin-bottom:10px;">
         ⭐ Laisser un avis Google
       </a>
+      <button class="btn btn-outline" id="open-referral-btn" style="text-align:center;display:block;">
+        🎁 Parrainer un ami
+      </button>
     `;
     document.getElementById('loyalty-card').onclick = toggleCardFlip;
+    document.getElementById('open-referral-btn').onclick = openReferralSheet;
     return;
   }
 
@@ -645,6 +649,50 @@ function formatDate(iso) {
   }
   const d = new Date(s);
   return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+/* ---------------- REFERRAL SHEET ---------------- */
+async function openReferralSheet() {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'sheet-backdrop';
+  backdrop.innerHTML = `
+    <div class="sheet" style="text-align:center;">
+      <h3>Parrainer un ami</h3>
+      <div class="sub">Montrez ce QR code à un ami. Quand il crée son compte, vous recevez chacun 1 point bonus !</div>
+      <div id="referral-zone"><div class="loading-spin"></div></div>
+      <button class="btn btn-ghost" id="close-referral" style="margin-top:14px;">Fermer</button>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+  backdrop.querySelector('#close-referral').onclick = () => backdrop.remove();
+
+  const zone = backdrop.querySelector('#referral-zone');
+  try {
+    const res = await api('/referral-qrcode');
+    zone.innerHTML = `
+      <img src="${res.qrcode}" alt="QR code de parrainage" style="width:200px;height:200px;margin:16px auto;display:block;border-radius:12px;" />
+      <button class="btn btn-outline" id="share-referral-btn" style="margin-top:8px;">Partager mon lien</button>
+    `;
+    const shareBtn = zone.querySelector('#share-referral-btn');
+    shareBtn.onclick = async () => {
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: 'Hairsprit', text: 'Rejoins-moi sur Hairsprit et gagne un point bonus !', url: res.url });
+        } catch (e) { /* annulé */ }
+      } else {
+        try {
+          await navigator.clipboard.writeText(res.url);
+          shareBtn.textContent = '✓ Lien copié !';
+          setTimeout(() => { shareBtn.textContent = 'Partager mon lien'; }, 1500);
+        } catch (e) {
+          alert(res.url);
+        }
+      }
+    };
+  } catch (err) {
+    zone.innerHTML = `<div class="error-msg">${err.message}</div>`;
+  }
 }
 
 /* ---------------- ADDRESS SHEET ---------------- */
@@ -814,6 +862,14 @@ function openBookingSheet() {
   }
 
   loadServicesThenSlots();
+}
+
+// Récupère le code de parrainage éventuel dans l'URL (?ref=...)
+const urlParams = new URLSearchParams(window.location.search);
+const refParam = urlParams.get('ref');
+if (refParam) {
+  state.referralCode = refParam;
+  state.authMode = 'register';
 }
 
 init();
