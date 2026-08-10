@@ -594,7 +594,10 @@ async function renderServicesTab(main) {
     <div class="section-title">Ajouter une prestation</div>
     <form id="new-service-form">
       <div class="field"><label>Nom</label><input name="name" required placeholder="Ex : Coupe classique" /></div>
-      <div class="field"><label>Prix (€)</label><input name="price" type="number" min="0" step="0.5" required /></div>
+      <div style="display:flex;gap:10px;">
+        <div class="field" style="flex:1;"><label>Prix (€)</label><input name="price" type="number" min="0" step="0.5" required /></div>
+        <div class="field" style="flex:1;"><label>Durée (min)</label><input name="duration_minutes" type="number" min="5" step="5" value="30" required /></div>
+      </div>
       <div class="field"><label>Description</label><input name="description" placeholder="Détail de la prestation" /></div>
       <button class="btn btn-outline" type="submit">Ajouter</button>
     </form>
@@ -606,7 +609,8 @@ async function renderServicesTab(main) {
         <input class="edit-name" value="${s.name.replace(/"/g, '&quot;')}" style="width:100%;margin-bottom:6px;" />
         <input class="edit-desc" value="${(s.description || '').replace(/"/g, '&quot;')}" style="width:100%;" />
       </div>
-      <input class="edit-price" type="number" min="0" step="0.5" value="${s.price}" style="width:80px;" />
+      <input class="edit-price" type="number" min="0" step="0.5" value="${s.price}" style="width:80px;" title="Prix (€)" />
+      <input class="edit-duration" type="number" min="5" step="5" value="${s.duration_minutes || 30}" style="width:70px;" title="Durée (min)" />
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--argent);">
         <input class="edit-active" type="checkbox" ${s.active ? 'checked' : ''} /> Actif
       </label>
@@ -626,6 +630,7 @@ async function renderServicesTab(main) {
             name: row.querySelector('.edit-name').value,
             description: row.querySelector('.edit-desc').value,
             price: row.querySelector('.edit-price').value,
+            duration_minutes: row.querySelector('.edit-duration').value,
             active: row.querySelector('.edit-active').checked,
           }),
         });
@@ -654,6 +659,7 @@ async function renderServicesTab(main) {
           name: fd.get('name'),
           price: fd.get('price'),
           description: fd.get('description'),
+          duration_minutes: fd.get('duration_minutes'),
         }),
       });
       renderServicesTab(main);
@@ -713,7 +719,8 @@ async function renderTodayTab(main) {
             <a href="${buildICSLink(b, schedule.slot_duration_minutes)}" title="Ajouter au calendrier" style="text-decoration:none;">📅</a>
           </div>
           <div style="font-weight:600;font-size:14.5px;">${b.prenom} ${b.nom} · ${b.telephone}</div>
-          ${b.service_name ? `<div style="color:var(--succes);font-size:13px;">${b.service_name} · ${parseFloat(b.service_price).toFixed(2)}€</div>` : ''}
+          ${b.people_count > 1 ? `<div style="color:var(--argent-clair);font-size:12.5px;">👥 ${b.people_count} personnes${b.total_duration_minutes ? ` · ${b.total_duration_minutes} min` : ''}</div>` : ''}
+          ${b.booking_details ? `<div style="color:var(--succes);font-size:13px;">${b.booking_details}</div>` : (b.service_name ? `<div style="color:var(--succes);font-size:13px;">${b.service_name} · ${parseFloat(b.service_price).toFixed(2)}€</div>` : '')}
           ${b.address ? `<div style="color:var(--argent);font-size:13px;">📍 ${b.address} <button class="copy-address-btn" data-address="${b.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button> <a href="https://www.waze.com/ul?q=${encodeURIComponent(b.address)}&navigate=yes" target="_blank" rel="noopener" title="Ouvrir dans Waze" style="text-decoration:none;padding:2px 4px;">🚗</a></div>` : ''}
           ${b.admin_notes ? `<div style="color:var(--argent);font-size:12.5px;">📝 ${b.admin_notes}</div>` : ''}
         </div>
@@ -773,6 +780,10 @@ async function renderBookingsTab(main) {
         <div class="field" style="margin-bottom:0;flex:1;min-width:130px;">
           <label>Durée créneau (min)</label>
           <input type="number" id="slot-duration" value="${schedule.slot_duration_minutes}" min="15" step="15" />
+        </div>
+        <div class="field" style="margin-bottom:0;flex:1;min-width:130px;">
+          <label>Marge de trajet (min)</label>
+          <input type="number" id="travel-buffer" value="${schedule.travel_buffer_minutes || 0}" min="0" step="5" />
         </div>
       </div>
       <button class="btn btn-outline" id="save-schedule-btn" style="margin-top:14px;">Enregistrer les horaires</button>
@@ -845,7 +856,8 @@ async function renderBookingsTab(main) {
             <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
           </div>
           ${b.slot_datetime ? `<div style="font-family:var(--font-mono);font-size:14px;display:flex;align-items:center;gap:8px;">${formatDate(b.slot_datetime)}${b.status === 'confirme' ? ` <a href="${buildICSLink(b, schedule.slot_duration_minutes)}" title="Ajouter au calendrier" style="text-decoration:none;">📅</a>` : ''}</div>` : ''}
-          ${b.service_name ? `<div style="font-size:13.5px;color:var(--succes);">${b.service_name} · ${parseFloat(b.service_price).toFixed(2)}€</div>` : ''}
+          ${b.people_count > 1 ? `<div style="color:var(--argent-clair);font-size:12.5px;">👥 ${b.people_count} personnes${b.total_duration_minutes ? ` · ${b.total_duration_minutes} min` : ''}</div>` : ''}
+          ${b.booking_details ? `<div style="font-size:13.5px;color:var(--succes);">${b.booking_details}</div>` : (b.service_name ? `<div style="font-size:13.5px;color:var(--succes);">${b.service_name} · ${parseFloat(b.service_price).toFixed(2)}€</div>` : '')}
           <div style="font-size:13.5px;">${b.message || '—'}</div>
           <div style="color:var(--argent);font-size:12px;">Demande envoyée le ${formatDate(b.created_at)}</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -867,6 +879,7 @@ async function renderBookingsTab(main) {
     const start_time = main.querySelector('#start-time').value;
     const end_time = main.querySelector('#end-time').value;
     const slot_duration_minutes = main.querySelector('#slot-duration').value;
+    const travel_buffer_minutes = main.querySelector('#travel-buffer').value;
     if (!checkedDays) {
       main.querySelector('#schedule-msg').innerHTML = `<div class="error-msg">Sélectionnez au moins un jour.</div>`;
       return;
@@ -876,7 +889,7 @@ async function renderBookingsTab(main) {
     try {
       await api('/schedule', {
         method: 'PUT',
-        body: JSON.stringify({ open_days: checkedDays, start_time, end_time, slot_duration_minutes }),
+        body: JSON.stringify({ open_days: checkedDays, start_time, end_time, slot_duration_minutes, travel_buffer_minutes }),
       });
       main.querySelector('#schedule-msg').innerHTML = `<div class="success-msg">✓ Horaires enregistrés.</div>`;
       btn.disabled = false;
