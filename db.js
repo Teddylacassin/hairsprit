@@ -123,6 +123,7 @@ async function initDb() {
       slot_duration_minutes INTEGER NOT NULL
     );
   `);
+  await pool.query(`ALTER TABLE schedule_settings ADD COLUMN IF NOT EXISTS travel_buffer_minutes INTEGER NOT NULL DEFAULT 20;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blocked_dates (
       id TEXT PRIMARY KEY,
