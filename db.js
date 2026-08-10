@@ -67,6 +67,36 @@ async function initDb() {
     );
   `);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS products (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      price NUMERIC NOT NULL,
+      description TEXT,
+      image_url TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS orders (
+      id TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES clients(id),
+      status TEXT NOT NULL DEFAULT 'en_attente',
+      note TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS order_items (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL REFERENCES orders(id),
+      product_id TEXT,
+      product_name TEXT NOT NULL,
+      product_price NUMERIC NOT NULL,
+      quantity INTEGER NOT NULL DEFAULT 1
+    );
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS bookings (
       id TEXT PRIMARY KEY,
       client_id TEXT NOT NULL REFERENCES clients(id),
@@ -80,6 +110,10 @@ async function initDb() {
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS pin_hash TEXT;`);
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS admin_notes TEXT;`);
   await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS service_id TEXT;`);
+  await pool.query(`ALTER TABLE services ADD COLUMN IF NOT EXISTS duration_minutes INTEGER NOT NULL DEFAULT 30;`);
+  await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS people_count INTEGER NOT NULL DEFAULT 1;`);
+  await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS total_duration_minutes INTEGER;`);
+  await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS booking_details TEXT;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schedule_settings (
       id TEXT PRIMARY KEY,
