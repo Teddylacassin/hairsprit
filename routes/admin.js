@@ -256,24 +256,25 @@ router.get('/services', requireAdminAuth, async (req, res) => {
 });
 
 router.post('/services', requireAdminAuth, async (req, res) => {
-  const { name, price, description } = req.body;
+  const { name, price, description, duration_minutes } = req.body;
   if (!name || price === undefined || price === '') return res.status(400).json({ error: 'Nom et prix requis.' });
   const id = uuidv4();
   const maxOrderRow = await db.get('SELECT COALESCE(MAX(sort_order),0) as m FROM services');
   const maxOrder = parseInt(maxOrderRow.m, 10);
-  await db.run('INSERT INTO services (id, name, price, description, sort_order) VALUES (?,?,?,?,?)',
-    [id, name.trim(), parseFloat(price), (description || '').trim(), maxOrder + 1]);
+  await db.run('INSERT INTO services (id, name, price, description, duration_minutes, sort_order) VALUES (?,?,?,?,?,?)',
+    [id, name.trim(), parseFloat(price), (description || '').trim(), parseInt(duration_minutes, 10) || 30, maxOrder + 1]);
   res.json({ ok: true, id });
 });
 
 router.put('/services/:id', requireAdminAuth, async (req, res) => {
   const service = await db.get('SELECT * FROM services WHERE id = ?', [req.params.id]);
   if (!service) return res.status(404).json({ error: 'Prestation introuvable.' });
-  const { name, price, description, active } = req.body;
-  await db.run('UPDATE services SET name=?, price=?, description=?, active=? WHERE id=?', [
+  const { name, price, description, duration_minutes, active } = req.body;
+  await db.run('UPDATE services SET name=?, price=?, description=?, duration_minutes=?, active=? WHERE id=?', [
     name !== undefined ? name.trim() : service.name,
     price !== undefined ? parseFloat(price) : service.price,
     description !== undefined ? description.trim() : service.description,
+    duration_minutes !== undefined ? (parseInt(duration_minutes, 10) || service.duration_minutes) : service.duration_minutes,
     active !== undefined ? (active ? 1 : 0) : service.active,
     req.params.id,
   ]);
@@ -285,65 +286,6 @@ router.delete('/services/:id', requireAdminAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// PRODUCTS (BOUTIQUE) CRUD
-router.get('/products', requireAdminAuth, async (req, res) => {
-  const products = await db.all('SELECT * FROM products ORDER BY sort_order ASC');
-  res.json({ products });
-});
-
-router.post('/products', requireAdminAuth, async (req, res) => {
-  const { name, price, description, image_url } = req.body;
-  if (!name || price === undefined || price === '') return res.status(400).json({ error: 'Nom et prix requis.' });
-  const id = uuidv4();
-  const maxOrderRow = await db.get('SELECT COALESCE(MAX(sort_order),0) as m FROM products');
-  const maxOrder = parseInt(maxOrderRow.m, 10);
-  await db.run('INSERT INTO products (id, name, price, description, image_url, sort_order) VALUES (?,?,?,?,?,?)',
-    [id, name.trim(), parseFloat(price), (description || '').trim(), (image_url || '').trim() || null, maxOrder + 1]);
-  res.json({ ok: true, id });
-});
-
-router.put('/products/:id', requireAdminAuth, async (req, res) => {
-  const product = await db.get('SELECT * FROM products WHERE id = ?', [req.params.id]);
-  if (!product) return res.status(404).json({ error: 'Produit introuvable.' });
-  const { name, price, description, image_url, active } = req.body;
-  await db.run('UPDATE products SET name=?, price=?, description=?, image_url=?, active=? WHERE id=?', [
-    name !== undefined ? name.trim() : product.name,
-    price !== undefined ? parseFloat(price) : product.price,
-    description !== undefined ? description.trim() : product.description,
-    image_url !== undefined ? ((image_url || '').trim() || null) : product.image_url,
-    active !== undefined ? (active ? 1 : 0) : product.active,
-    req.params.id,
-  ]);
-  res.json({ ok: true });
-});
-
-router.delete('/products/:id', requireAdminAuth, async (req, res) => {
-  await db.run('DELETE FROM products WHERE id = ?', [req.params.id]);
-  res.json({ ok: true });
-});
-
-// GET /api/admin/orders -> all product orders with items
-router.get('/orders', requireAdminAuth, async (req, res) => {
-  const orders = await db.all(`
-    SELECT o.id, o.status, o.note, o.created_at, c.nom, c.prenom, c.telephone, c.address
-    FROM orders o JOIN clients c ON c.id = o.client_id
-    ORDER BY o.created_at DESC
-  `);
-  const items = await db.all('SELECT * FROM order_items');
-  const withItems = orders.map(o => ({
-    ...o,
-    items: items.filter(i => i.order_id === o.id),
-  }));
-  res.json({ orders: withItems });
-});
-
-// PUT /api/admin/orders/:id -> update order status (e.g. mark as delivered)
-router.put('/orders/:id', requireAdminAuth, async (req, res) => {
-  const { status } = req.body;
-  await db.run('UPDATE orders SET status = ? WHERE id = ?', [status, req.params.id]);
-  res.json({ ok: true });
-});
-
 // GET /api/admin/schedule -> get schedule settings
 router.get('/schedule', requireAdminAuth, async (req, res) => {
   const settings = await db.get('SELECT * FROM schedule_settings WHERE id = ?', ['default']);
@@ -352,13 +294,13 @@ router.get('/schedule', requireAdminAuth, async (req, res) => {
 
 // PUT /api/admin/schedule -> update schedule settings
 router.put('/schedule', requireAdminAuth, async (req, res) => {
-  const { open_days, start_time, end_time, slot_duration_minutes } = req.body;
+  const { open_days, start_time, end_time, slot_duration_minutes, travel_buffer_minutes } = req.body;
   if (!open_days || !start_time || !end_time || !slot_duration_minutes) {
     return res.status(400).json({ error: 'Tous les champs sont requis.' });
   }
   await db.run(
-    'UPDATE schedule_settings SET open_days = ?, start_time = ?, end_time = ?, slot_duration_minutes = ? WHERE id = ?',
-    [open_days, start_time, end_time, parseInt(slot_duration_minutes, 10), 'default']
+    'UPDATE schedule_settings SET open_days = ?, start_time = ?, end_time = ?, slot_duration_minutes = ?, travel_buffer_minutes = ? WHERE id = ?',
+    [open_days, start_time, end_time, parseInt(slot_duration_minutes, 10), parseInt(travel_buffer_minutes, 10) || 0, 'default']
   );
   res.json({ ok: true });
 });
@@ -441,7 +383,8 @@ router.delete('/blocked-slots/:id', requireAdminAuth, async (req, res) => {
 // GET /api/admin/bookings
 router.get('/bookings', requireAdminAuth, async (req, res) => {
   const rows = await db.all(`
-    SELECT b.id, b.message, b.status, b.created_at, b.slot_datetime, c.nom, c.prenom, c.telephone, c.address, c.admin_notes,
+    SELECT b.id, b.message, b.status, b.created_at, b.slot_datetime, b.people_count, b.total_duration_minutes, b.booking_details,
+           c.nom, c.prenom, c.telephone, c.address, c.admin_notes,
            s.name AS service_name, s.price AS service_price
     FROM bookings b
     JOIN clients c ON c.id = b.client_id
