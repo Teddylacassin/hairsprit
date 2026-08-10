@@ -4,7 +4,7 @@
 // (avec l'expéditeur par défaut onboarding@resend.dev) — ce qui convient parfaitement ici,
 // puisque c'est justement Teddy qui doit recevoir l'alerte.
 
-async function sendBookingAlertEmail({ client, message, slotDatetime, serviceName }) {
+async function sendBookingAlertEmail({ client, message, slotDatetime, serviceName, peopleCount, bookingDetails }) {
   const apiKey = process.env.RESEND_API_KEY;
   const toEmail = process.env.NOTIFY_EMAIL;
   if (!apiKey || !toEmail) {
@@ -26,7 +26,8 @@ async function sendBookingAlertEmail({ client, message, slotDatetime, serviceNam
       <p><strong>Client :</strong> ${client.prenom} ${client.nom}</p>
       <p><strong>Téléphone :</strong> ${client.telephone}</p>
       <p><strong>Créneau demandé :</strong> ${dateLabel}</p>
-      ${serviceName ? `<p><strong>Prestation :</strong> ${serviceName}</p>` : ''}
+      ${peopleCount && peopleCount > 1 ? `<p><strong>Nombre de personnes :</strong> ${peopleCount}</p>` : ''}
+      ${bookingDetails ? `<p><strong>Détail :</strong> ${bookingDetails}</p>` : (serviceName ? `<p><strong>Prestation :</strong> ${serviceName}</p>` : '')}
       ${client.address ? `<p><strong>Adresse :</strong> ${client.address}</p>` : ''}
       ${message ? `<p><strong>Message :</strong> ${message}</p>` : ''}
       <p style="margin-top:20px;">
