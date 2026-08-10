@@ -591,7 +591,8 @@ function renderDashboardTabContent() {
             <div style="display:flex;justify-content:space-between;align-items:flex-start;width:100%;">
               <div>
                 <div>${b.slot_datetime ? formatDate(b.slot_datetime) : (b.message || 'Demande de réservation')}</div>
-                ${b.service_name ? `<div class="date">${b.service_name} · ${parseFloat(b.service_price).toFixed(2)}€</div>` : ''}
+                ${b.people_count > 1 ? `<div class="date">👥 ${b.people_count} personnes</div>` : ''}
+                ${b.booking_details ? `<div class="date">${b.booking_details}</div>` : (b.service_name ? `<div class="date">${b.service_name} · ${parseFloat(b.service_price).toFixed(2)}€</div>` : '')}
                 ${b.slot_datetime && b.message ? `<div class="date">${b.message}</div>` : ''}
               </div>
               <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
@@ -739,7 +740,7 @@ function openBookingSheet() {
   backdrop.innerHTML = `
     <div class="sheet">
       <h3>Réserver une coupe</h3>
-      <div class="sub">Choisissez une prestation, puis un créneau disponible.</div>
+      <div class="sub">Combien de personnes, et quelle prestation pour chacune ?</div>
       <div id="booking-error"></div>
       <div id="slots-zone"><div class="loading-spin"></div></div>
     </div>
@@ -748,47 +749,92 @@ function openBookingSheet() {
   backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
 
   let selectedSlot = null;
-  let selectedService = null;
+  let peopleCount = 1;
+  let personServiceIds = [];
+  let allServices = [];
 
-  async function loadServicesThenSlots() {
+  function totalDuration() {
+    return personServiceIds.reduce((sum, sid) => {
+      const s = allServices.find(sv => sv.id === sid);
+      return sum + (s ? s.duration_minutes : 30);
+    }, 0);
+  }
+  function totalPrice() {
+    return personServiceIds.reduce((sum, sid) => {
+      const s = allServices.find(sv => sv.id === sid);
+      return sum + (s ? parseFloat(s.price) : 0);
+    }, 0);
+  }
+  function bookingDetailsText() {
+    return personServiceIds.map((sid, i) => {
+      const s = allServices.find(sv => sv.id === sid);
+      return `Personne ${i + 1} : ${s ? s.name : 'Prestation'} (${s ? s.duration_minutes : 30}min)`;
+    }).join(' · ');
+  }
+
+  async function loadPeopleAndServices() {
     const zone = backdrop.querySelector('#slots-zone');
-    let services = [];
     try {
       const servicesRes = await api('/services');
-      services = servicesRes.services;
-    } catch (e) { /* silent, on continue sans tarifs */ }
+      allServices = servicesRes.services;
+    } catch (e) { allServices = []; }
 
-    if (services.length === 0) {
+    if (allServices.length === 0) {
+      // Pas de tarifs configurés : on passe directement au choix du créneau (durée standard)
       loadSlots(zone);
       return;
     }
 
+    if (personServiceIds.length !== peopleCount) {
+      personServiceIds = Array.from({ length: peopleCount }, (_, i) => personServiceIds[i] || allServices[0].id);
+    }
+
     zone.innerHTML = `
-      <div class="section-title" style="margin-top:0;">Prestation</div>
-      <div style="display:flex;flex-direction:column;gap:8px;">
-        ${services.map(s => `
-          <button type="button" class="btn btn-outline service-pick-btn" data-service-id="${s.id}" data-service-name="${s.name.replace(/"/g, '&quot;')}" style="justify-content:space-between;text-align:left;">
-            <span>${s.name}</span>
-            <span style="font-family:var(--font-mono);">${parseFloat(s.price).toFixed(2)}€</span>
-          </button>
-        `).join('')}
+      <div class="section-title" style="margin-top:0;">Combien de personnes ?</div>
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;">
+        <button type="button" class="btn btn-outline" id="people-minus" style="width:44px;">−</button>
+        <span style="font-family:var(--font-mono);font-size:20px;min-width:24px;text-align:center;">${peopleCount}</span>
+        <button type="button" class="btn btn-outline" id="people-plus" style="width:44px;">+</button>
       </div>
+      ${personServiceIds.map((sid, i) => `
+        <div class="field">
+          <label>Prestation — Personne ${i + 1}</label>
+          <select class="person-service-select" data-index="${i}" style="width:100%;background:var(--panel);border:1px solid var(--ligne);color:var(--blanc);padding:12px 14px;border-radius:10px;font-size:14px;">
+            ${allServices.map(s => `<option value="${s.id}" ${s.id === sid ? 'selected' : ''}>${s.name} — ${parseFloat(s.price).toFixed(2)}€ (${s.duration_minutes}min)</option>`).join('')}
+          </select>
+        </div>
+      `).join('')}
+      <div style="display:flex;justify-content:space-between;font-size:13.5px;color:var(--argent);margin:10px 0 18px;">
+        <span>Durée totale estimée</span>
+        <span style="font-family:var(--font-mono);color:var(--argent-clair);">${totalDuration()} min · ${totalPrice().toFixed(2)}€</span>
+      </div>
+      <button class="btn btn-primary" id="see-slots-btn">Voir les créneaux disponibles</button>
     `;
-    zone.querySelectorAll('.service-pick-btn').forEach(btn => {
-      btn.onclick = () => {
-        selectedService = { id: btn.dataset.serviceId, name: btn.dataset.serviceName };
-        loadSlots(zone);
+
+    zone.querySelector('#people-minus').onclick = () => {
+      if (peopleCount > 1) { peopleCount--; loadPeopleAndServices(); }
+    };
+    zone.querySelector('#people-plus').onclick = () => {
+      if (peopleCount < 6) { peopleCount++; loadPeopleAndServices(); }
+    };
+    zone.querySelectorAll('.person-service-select').forEach(sel => {
+      sel.onchange = () => {
+        personServiceIds[parseInt(sel.dataset.index, 10)] = sel.value;
+        loadPeopleAndServices();
       };
     });
+    zone.querySelector('#see-slots-btn').onclick = () => loadSlots(zone);
   }
 
   async function loadSlots(zone) {
+    const duration = allServices.length > 0 ? totalDuration() : null;
+    zone.innerHTML = `<div class="loading-spin"></div>`;
     try {
-      const res = await api('/available-slots');
+      const res = await api(`/available-slots${duration ? `?duration=${duration}` : ''}`);
       if (res.slots.length === 0) {
-        zone.innerHTML = `<div class="empty-state">Aucun créneau disponible pour le moment. Contactez le salon directement.</div>
-          <button class="btn btn-ghost" id="cancel-booking" style="margin-top:14px;">Fermer</button>`;
-        zone.querySelector('#cancel-booking').onclick = () => backdrop.remove();
+        zone.innerHTML = `<div class="empty-state">Aucun créneau disponible pour cette durée. Essayez avec moins de personnes, ou contactez le salon directement.</div>
+          <button class="btn btn-ghost" id="back-to-people" style="margin-top:14px;">← Retour</button>`;
+        zone.querySelector('#back-to-people').onclick = () => loadPeopleAndServices();
         return;
       }
       const byDay = {};
@@ -799,7 +845,7 @@ function openBookingSheet() {
         byDay[dayKey].push(iso);
       });
       zone.innerHTML = `
-        ${selectedService ? `<div class="section-title" style="margin-top:0;">Prestation : ${selectedService.name}</div>` : ''}
+        ${allServices.length > 0 ? `<div class="section-title" style="margin-top:0;">${peopleCount > 1 ? `${peopleCount} personnes` : bookingDetailsText()} · ${res.durationMinutes} min</div>` : ''}
         <div style="max-height:340px;overflow-y:auto;">
           ${Object.entries(byDay).map(([day, slots]) => `
             <div class="section-title" style="margin-top:16px;">${day}</div>
@@ -817,7 +863,7 @@ function openBookingSheet() {
           <textarea id="message" name="message" rows="2" placeholder="Précision sur la prestation..."></textarea>
         </div>
         <button class="btn btn-primary" id="confirm-slot-btn" disabled>Choisissez un créneau</button>
-        <button class="btn btn-ghost" type="button" id="cancel-booking" style="margin-top:10px;">Annuler</button>
+        <button class="btn btn-ghost" type="button" id="back-to-people-2" style="margin-top:10px;">← Retour</button>
       `;
 
       zone.querySelectorAll('.slot-btn').forEach(btn => {
@@ -831,7 +877,8 @@ function openBookingSheet() {
         };
       });
 
-      zone.querySelector('#cancel-booking').onclick = () => backdrop.remove();
+      const backBtn = zone.querySelector('#back-to-people-2');
+      if (backBtn) backBtn.onclick = () => loadPeopleAndServices();
 
       zone.querySelector('#confirm-slot-btn').onclick = async () => {
         if (!selectedSlot) return;
@@ -842,7 +889,14 @@ function openBookingSheet() {
         try {
           await api('/booking', {
             method: 'POST',
-            body: JSON.stringify({ message, slot_datetime: selectedSlot, service_id: selectedService ? selectedService.id : null }),
+            body: JSON.stringify({
+              message,
+              slot_datetime: selectedSlot,
+              service_id: personServiceIds[0] || null,
+              people_count: peopleCount,
+              total_duration_minutes: duration || undefined,
+              booking_details: allServices.length > 0 ? bookingDetailsText() : undefined,
+            }),
           });
           backdrop.querySelector('.sheet').innerHTML = `
             <h3>Demande envoyée ✓</h3>
@@ -861,7 +915,7 @@ function openBookingSheet() {
     }
   }
 
-  loadServicesThenSlots();
+  loadPeopleAndServices();
 }
 
 // Récupère le code de parrainage éventuel dans l'URL (?ref=...)
