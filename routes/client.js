@@ -202,16 +202,17 @@ router.get('/rewards', requireClientAuth, async (req, res) => {
 
 // GET /api/client/public-services -> active services, no auth required (used by the public landing page)
 router.get('/public-services', async (req, res) => {
-  const services = await db.all('SELECT id, name, price, description FROM services WHERE active = 1 ORDER BY sort_order ASC');
+  const services = await db.all('SELECT id, name, price, description, duration_minutes FROM services WHERE active = 1 ORDER BY sort_order ASC');
   res.json({ services });
 });
 
 router.get('/services', requireClientAuth, async (req, res) => {
-  const services = await db.all('SELECT id, name, price, description FROM services WHERE active = 1 ORDER BY sort_order ASC');
+  const services = await db.all('SELECT id, name, price, description, duration_minutes FROM services WHERE active = 1 ORDER BY sort_order ASC');
   res.json({ services });
 });
 
 // GET /api/client/available-slots -> compute upcoming available slots from schedule settings
+// ?duration=N (minutes) -> durée totale nécessaire (ex: plusieurs personnes). Par défaut, durée du créneau standard.
 router.get('/available-slots', requireClientAuth, async (req, res) => {
   const settings = await db.get('SELECT * FROM schedule_settings WHERE id = ?', ['default']);
   if (!settings) return res.json({ slots: [] });
@@ -219,15 +220,30 @@ router.get('/available-slots', requireClientAuth, async (req, res) => {
   const openDays = settings.open_days.split(',').map(d => parseInt(d, 10));
   const [startH, startM] = settings.start_time.split(':').map(Number);
   const [endH, endM] = settings.end_time.split(':').map(Number);
-  const duration = settings.slot_duration_minutes;
+  const gridStep = settings.slot_duration_minutes;
+  const travelBuffer = settings.travel_buffer_minutes || 0;
+  const requestedDuration = Math.max(15, parseInt(req.query.duration, 10) || gridStep);
 
-  const takenRows = await db.all(
-    `SELECT slot_datetime FROM bookings WHERE slot_datetime IS NOT NULL AND status != 'annule' AND slot_datetime >= now()`
+  // Fenêtres occupées : réservations existantes (avec leur propre durée totale) + créneaux bloqués manuellement
+  // On ajoute la marge de trajet de part et d'autre pour laisser le temps de se déplacer
+  const bookingRows = await db.all(
+    `SELECT slot_datetime, total_duration_minutes FROM bookings WHERE slot_datetime IS NOT NULL AND status != 'annule' AND slot_datetime >= now() - interval '1 day'`
   );
-  const taken = new Set(takenRows.map(r => new Date(r.slot_datetime).toISOString()));
-
   const blockedSlotRows = await db.all('SELECT slot_datetime FROM blocked_slots');
-  blockedSlotRows.forEach(r => taken.add(new Date(r.slot_datetime).toISOString()));
+  const occupied = [
+    ...bookingRows.map(r => ({
+      start: new Date(r.slot_datetime).getTime() - travelBuffer * 60000,
+      end: new Date(r.slot_datetime).getTime() + (r.total_duration_minutes || gridStep) * 60000 + travelBuffer * 60000,
+    })),
+    ...blockedSlotRows.map(r => ({
+      start: new Date(r.slot_datetime).getTime() - travelBuffer * 60000,
+      end: new Date(r.slot_datetime).getTime() + gridStep * 60000 + travelBuffer * 60000,
+    })),
+  ];
+
+  function overlaps(startMs, endMs) {
+    return occupied.some(o => startMs < o.end && o.start < endMs);
+  }
 
   const blockedRows = await db.all('SELECT blocked_date FROM blocked_dates');
   const blockedDates = new Set(blockedRows.map(r => new Date(r.blocked_date).toISOString().slice(0, 10)));
@@ -244,24 +260,24 @@ router.get('/available-slots', requireClientAuth, async (req, res) => {
     let cursor = zonedTimeToUtc(dateStr, startH, startM, 'Europe/Brussels');
     const dayEnd = zonedTimeToUtc(dateStr, endH, endM, 'Europe/Brussels');
 
-    while (cursor.getTime() + duration * 60000 <= dayEnd.getTime()) {
-      if (cursor.getTime() > now.getTime()) {
-        const iso = cursor.toISOString();
-        if (!taken.has(iso)) {
-          slots.push(iso);
-        }
+    while (cursor.getTime() + requestedDuration * 60000 <= dayEnd.getTime()) {
+      const startMs = cursor.getTime();
+      const endMs = startMs + requestedDuration * 60000;
+      if (startMs > now.getTime() && !overlaps(startMs, endMs)) {
+        slots.push(new Date(startMs).toISOString());
       }
-      cursor = new Date(cursor.getTime() + duration * 60000);
+      cursor = new Date(cursor.getTime() + gridStep * 60000);
     }
   }
 
-  res.json({ slots, durationMinutes: duration });
+  res.json({ slots, durationMinutes: requestedDuration });
 });
 
 // GET /api/client/bookings -> client's own booking requests with status
 router.get('/bookings', requireClientAuth, async (req, res) => {
   const bookings = await db.all(
-    `SELECT b.id, b.message, b.status, b.slot_datetime, b.created_at, s.name AS service_name, s.price AS service_price
+    `SELECT b.id, b.message, b.status, b.slot_datetime, b.created_at, b.people_count, b.total_duration_minutes, b.booking_details,
+            s.name AS service_name, s.price AS service_price
      FROM bookings b
      LEFT JOIN services s ON s.id = b.service_id
      WHERE b.client_id = ? ORDER BY b.created_at DESC`,
@@ -285,21 +301,41 @@ router.put('/booking/:id/cancel', requireClientAuth, async (req, res) => {
 
 // POST /api/client/booking
 router.post('/booking', requireClientAuth, async (req, res) => {
-  const { message, slot_datetime, service_id } = req.body;
+  const { message, slot_datetime, service_id, people_count, total_duration_minutes, booking_details } = req.body;
   const id = uuidv4();
+  const duration = parseInt(total_duration_minutes, 10) || 30;
 
   if (slot_datetime) {
-    const existing = await db.get(
-      `SELECT id FROM bookings WHERE slot_datetime = ? AND status != 'annule'`,
-      [slot_datetime]
+    const startMs = new Date(slot_datetime).getTime();
+    const endMs = startMs + duration * 60000;
+    const settings = await db.get('SELECT slot_duration_minutes, travel_buffer_minutes FROM schedule_settings WHERE id = ?', ['default']);
+    const gridStep = settings ? settings.slot_duration_minutes : 30;
+    const travelBuffer = settings ? (settings.travel_buffer_minutes || 0) : 0;
+
+    const others = await db.all(
+      `SELECT slot_datetime, total_duration_minutes FROM bookings WHERE slot_datetime IS NOT NULL AND status != 'annule'`
     );
-    if (existing) {
+    const blockedSlots = await db.all('SELECT slot_datetime FROM blocked_slots');
+    const occupied = [
+      ...others.map(r => ({
+        start: new Date(r.slot_datetime).getTime() - travelBuffer * 60000,
+        end: new Date(r.slot_datetime).getTime() + (r.total_duration_minutes || gridStep) * 60000 + travelBuffer * 60000,
+      })),
+      ...blockedSlots.map(r => ({
+        start: new Date(r.slot_datetime).getTime() - travelBuffer * 60000,
+        end: new Date(r.slot_datetime).getTime() + gridStep * 60000 + travelBuffer * 60000,
+      })),
+    ];
+    const conflict = occupied.some(o => startMs < o.end && o.start < endMs);
+    if (conflict) {
       return res.status(409).json({ error: 'Ce créneau vient d\'être réservé par quelqu\'un d\'autre. Choisissez-en un autre.' });
     }
   }
 
-  await db.run('INSERT INTO bookings (id, client_id, message, slot_datetime, service_id) VALUES (?,?,?,?,?)',
-    [id, req.clientId, (message || '').trim().slice(0, 500), slot_datetime || null, service_id || null]);
+  const peopleCountVal = Math.max(1, parseInt(people_count, 10) || 1);
+
+  await db.run('INSERT INTO bookings (id, client_id, message, slot_datetime, service_id, people_count, total_duration_minutes, booking_details) VALUES (?,?,?,?,?,?,?,?)',
+    [id, req.clientId, (message || '').trim().slice(0, 500), slot_datetime || null, service_id || null, peopleCountVal, duration, (booking_details || '').trim().slice(0, 800) || null]);
 
   const client = await db.get('SELECT * FROM clients WHERE id = ?', [req.clientId]);
   let serviceName = null;
@@ -307,7 +343,14 @@ router.post('/booking', requireClientAuth, async (req, res) => {
     const service = await db.get('SELECT name FROM services WHERE id = ?', [service_id]);
     serviceName = service ? service.name : null;
   }
-  sendBookingAlertEmail({ client, message: (message || '').trim(), slotDatetime: slot_datetime, serviceName }).catch(() => {});
+  sendBookingAlertEmail({
+    client,
+    message: (message || '').trim(),
+    slotDatetime: slot_datetime,
+    serviceName,
+    peopleCount: peopleCountVal,
+    bookingDetails: booking_details,
+  }).catch(() => {});
 
   res.json({ ok: true, bookingId: id });
 });
