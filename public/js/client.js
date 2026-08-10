@@ -673,22 +673,17 @@ async function openReferralSheet() {
     const res = await api('/referral-qrcode');
     zone.innerHTML = `
       <img src="${res.qrcode}" alt="QR code de parrainage" style="width:200px;height:200px;margin:16px auto;display:block;border-radius:12px;" />
-      <button class="btn btn-outline" id="share-referral-btn" style="margin-top:8px;">Partager mon lien</button>
+      <div style="background:var(--panel);border:1px solid var(--ligne);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--argent);word-break:break-all;margin-bottom:10px;">${res.url}</div>
+      <button class="btn btn-outline" id="share-referral-btn">Copier le lien</button>
     `;
     const shareBtn = zone.querySelector('#share-referral-btn');
     shareBtn.onclick = async () => {
-      if (navigator.share) {
-        try {
-          await navigator.share({ title: 'Hairsprit', text: 'Rejoins-moi sur Hairsprit et gagne un point bonus !', url: res.url });
-        } catch (e) { /* annulé */ }
-      } else {
-        try {
-          await navigator.clipboard.writeText(res.url);
-          shareBtn.textContent = '✓ Lien copié !';
-          setTimeout(() => { shareBtn.textContent = 'Partager mon lien'; }, 1500);
-        } catch (e) {
-          alert(res.url);
-        }
+      try {
+        await navigator.clipboard.writeText(res.url);
+        shareBtn.textContent = '✓ Lien copié !';
+        setTimeout(() => { shareBtn.textContent = 'Copier le lien'; }, 1500);
+      } catch (e) {
+        alert(res.url);
       }
     };
   } catch (err) {
