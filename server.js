@@ -19,15 +19,17 @@ app.use('/api/admin', adminRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true, app: 'Hairsprit Fidélité' }));
 
+// Static frontend
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Alias explicite : /app ouvre la même carte de fidélité que la racine
+app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 initDb()
   .then(() => {
     app.listen(PORT, () => {
-      console.log(`Hairsprit Fidélité en ligne sur http://localhost:${PORT}`);
+      console.log(`✂️  Hairsprit Fidélité en ligne sur http://localhost:${PORT}`);
     });
   })
   .catch((err) => {
