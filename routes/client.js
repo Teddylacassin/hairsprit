@@ -202,12 +202,12 @@ router.get('/rewards', requireClientAuth, async (req, res) => {
 
 // GET /api/client/public-services -> active services, no auth required (used by the public landing page)
 router.get('/public-services', async (req, res) => {
-  const services = await db.all('SELECT id, name, price, description, duration_minutes FROM services WHERE active = 1 ORDER BY sort_order ASC');
+  const services = await db.all('SELECT id, name, price, description, duration_minutes, group_price FROM services WHERE active = 1 ORDER BY sort_order ASC');
   res.json({ services });
 });
 
 router.get('/services', requireClientAuth, async (req, res) => {
-  const services = await db.all('SELECT id, name, price, description, duration_minutes FROM services WHERE active = 1 ORDER BY sort_order ASC');
+  const services = await db.all('SELECT id, name, price, description, duration_minutes, group_price FROM services WHERE active = 1 ORDER BY sort_order ASC');
   res.json({ services });
 });
 
