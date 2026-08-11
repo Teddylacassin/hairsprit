@@ -256,25 +256,26 @@ router.get('/services', requireAdminAuth, async (req, res) => {
 });
 
 router.post('/services', requireAdminAuth, async (req, res) => {
-  const { name, price, description, duration_minutes } = req.body;
+  const { name, price, description, duration_minutes, group_price } = req.body;
   if (!name || price === undefined || price === '') return res.status(400).json({ error: 'Nom et prix requis.' });
   const id = uuidv4();
   const maxOrderRow = await db.get('SELECT COALESCE(MAX(sort_order),0) as m FROM services');
   const maxOrder = parseInt(maxOrderRow.m, 10);
-  await db.run('INSERT INTO services (id, name, price, description, duration_minutes, sort_order) VALUES (?,?,?,?,?,?)',
-    [id, name.trim(), parseFloat(price), (description || '').trim(), parseInt(duration_minutes, 10) || 30, maxOrder + 1]);
+  await db.run('INSERT INTO services (id, name, price, description, duration_minutes, group_price, sort_order) VALUES (?,?,?,?,?,?,?)',
+    [id, name.trim(), parseFloat(price), (description || '').trim(), parseInt(duration_minutes, 10) || 30, (group_price !== undefined && group_price !== '') ? parseFloat(group_price) : null, maxOrder + 1]);
   res.json({ ok: true, id });
 });
 
 router.put('/services/:id', requireAdminAuth, async (req, res) => {
   const service = await db.get('SELECT * FROM services WHERE id = ?', [req.params.id]);
   if (!service) return res.status(404).json({ error: 'Prestation introuvable.' });
-  const { name, price, description, duration_minutes, active } = req.body;
-  await db.run('UPDATE services SET name=?, price=?, description=?, duration_minutes=?, active=? WHERE id=?', [
+  const { name, price, description, duration_minutes, group_price, active } = req.body;
+  await db.run('UPDATE services SET name=?, price=?, description=?, duration_minutes=?, group_price=?, active=? WHERE id=?', [
     name !== undefined ? name.trim() : service.name,
     price !== undefined ? parseFloat(price) : service.price,
     description !== undefined ? description.trim() : service.description,
     duration_minutes !== undefined ? (parseInt(duration_minutes, 10) || service.duration_minutes) : service.duration_minutes,
+    group_price !== undefined ? ((group_price === '' || group_price === null) ? null : parseFloat(group_price)) : service.group_price,
     active !== undefined ? (active ? 1 : 0) : service.active,
     req.params.id,
   ]);
