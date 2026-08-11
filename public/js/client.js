@@ -748,6 +748,11 @@ function openBookingSheet() {
   let personServiceIds = [];
   let allServices = [];
 
+  function personPrice(s) {
+    if (!s) return 0;
+    if (peopleCount >= 3 && s.group_price != null && s.group_price !== '') return parseFloat(s.group_price);
+    return parseFloat(s.price);
+  }
   function totalDuration() {
     return personServiceIds.reduce((sum, sid) => {
       const s = allServices.find(sv => sv.id === sid);
@@ -757,13 +762,13 @@ function openBookingSheet() {
   function totalPrice() {
     return personServiceIds.reduce((sum, sid) => {
       const s = allServices.find(sv => sv.id === sid);
-      return sum + (s ? parseFloat(s.price) : 0);
+      return sum + personPrice(s);
     }, 0);
   }
   function bookingDetailsText() {
     return personServiceIds.map((sid, i) => {
       const s = allServices.find(sv => sv.id === sid);
-      return `Personne ${i + 1} : ${s ? s.name : 'Prestation'} (${s ? s.duration_minutes : 30}min)`;
+      return `Personne ${i + 1} : ${s ? s.name : 'Prestation'} (${personPrice(s).toFixed(2)}€, ${s ? s.duration_minutes : 30}min)`;
     }).join(' · ');
   }
 
@@ -791,11 +796,12 @@ function openBookingSheet() {
         <span style="font-family:var(--font-mono);font-size:20px;min-width:24px;text-align:center;">${peopleCount}</span>
         <button type="button" class="btn btn-outline" id="people-plus" style="width:44px;">+</button>
       </div>
+      ${peopleCount >= 3 ? `<div style="color:var(--succes);font-size:12.5px;margin-bottom:14px;">🎉 Tarif groupe appliqué (3 personnes ou plus)</div>` : ''}
       ${personServiceIds.map((sid, i) => `
         <div class="field">
           <label>Prestation — Personne ${i + 1}</label>
           <select class="person-service-select" data-index="${i}" style="width:100%;background:var(--panel);border:1px solid var(--ligne);color:var(--blanc);padding:12px 14px;border-radius:10px;font-size:14px;">
-            ${allServices.map(s => `<option value="${s.id}" ${s.id === sid ? 'selected' : ''}>${s.name} — ${parseFloat(s.price).toFixed(2)}€ (${s.duration_minutes}min)</option>`).join('')}
+            ${allServices.map(s => `<option value="${s.id}" ${s.id === sid ? 'selected' : ''}>${s.name} — ${personPrice(s).toFixed(2)}€${peopleCount >= 3 && s.group_price != null ? ' (groupe)' : ''} (${s.duration_minutes}min)</option>`).join('')}
           </select>
         </div>
       `).join('')}
