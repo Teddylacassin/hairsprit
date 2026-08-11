@@ -54,7 +54,7 @@ const BIBLE_VERSES = [
 
 function icon(name) {
   const icons = {
-    scissors: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.5 8.5 19 19M8.5 15.5 19 5"/></svg>',
+    scissors: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="12" height="12" rx="2"/><line x1="9" y1="15" x2="9" y2="20"/><line x1="12" y1="15" x2="12" y2="21"/><line x1="15" y1="15" x2="15" y2="20"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="10" x2="15" y2="10"/></svg>',
     logout: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
     calendar: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
     pin: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>',
@@ -359,6 +359,54 @@ function renderAuthRegister() {
   };
 }
 
+/* ---------------- TEMPS RÉEL (nouveau tampon en direct) ---------------- */
+function connectPointsStream() {
+  if (state.eventSource) return; // déjà connecté
+  try {
+    const es = new EventSource(`${API}/points-stream?token=${encodeURIComponent(state.token)}`);
+    es.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === 'point_added') {
+          state.client.points = data.points;
+          playStampCelebration();
+          if (state.dashboardTab === 'card') renderDashboardTabContent();
+        } else if (data.type === 'reset') {
+          state.client.points = data.points;
+          if (state.dashboardTab === 'card') renderDashboardTabContent();
+        }
+      } catch (err) { /* silent */ }
+    };
+    es.onerror = () => {
+      // La connexion se rétablit automatiquement ; rien à faire ici.
+    };
+    state.eventSource = es;
+  } catch (e) { /* EventSource non disponible, tant pis */ }
+}
+
+function playStampCelebration() {
+  const overlay = document.createElement('div');
+  overlay.className = 'stamp-celebration';
+  const emojis = ['✂️', '🎉', '⭐', '✨'];
+  let confetti = '';
+  for (let i = 0; i < 18; i++) {
+    const left = Math.random() * 100;
+    const delay = Math.random() * 0.4;
+    const emoji = emojis[Math.floor(Math.random() * emojis.length)];
+    confetti += `<span class="confetti-piece" style="left:${left}%;animation-delay:${delay}s;">${emoji}</span>`;
+  }
+  overlay.innerHTML = `
+    ${confetti}
+    <div class="stamp-celebration-badge">
+      <div class="stamp-celebration-icon">✂️</div>
+      <div class="stamp-celebration-text">Nouveau tampon !</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  if (navigator.vibrate) { try { navigator.vibrate([40, 30, 40]); } catch (e) {} }
+  setTimeout(() => overlay.remove(), 2200);
+}
+
 /* ---------------- DASHBOARD ---------------- */
 async function toggleCardFlip() {
   state.cardFlipped = !state.cardFlipped;
@@ -459,6 +507,7 @@ function renderDashboard() {
   const c = state.client;
   const newlyUnlocked = checkNewlyUnlockedRewards(c, state.rewards);
   const bookingChanges = checkBookingStatusChanges(c, state.bookings);
+  connectPointsStream();
 
   app.innerHTML = `
     <div class="topbar">
@@ -491,6 +540,7 @@ function renderDashboard() {
   });
   document.getElementById('edit-address-btn').onclick = openAddressSheet;
   document.getElementById('logout-btn').onclick = () => {
+    if (state.eventSource) { state.eventSource.close(); state.eventSource = null; }
     clearToken();
     state.client = null;
     state.qrcode = null;
@@ -523,7 +573,7 @@ function renderDashboardTabContent() {
     const stampsHtml = Array.from({ length: stampGoal }, (_, i) => {
       const isFilled = i < c.points;
       const isLast = isFilled && i === c.points - 1;
-      return `<span class="stamp ${isFilled ? 'filled' : ''} ${isLast ? 'stamp-new' : ''}" style="--tilt:${tilts[i % tilts.length]}deg;">${isFilled ? icon('scissors') : ''}</span>`;
+      return `<span class="stamp ${isFilled ? 'filled' : ''} ${isLast ? 'stamp-new' : ''}" style="--tilt:${tilts[i % tilts.length]}deg;">${isFilled ? '<img src="/logo.jpg" alt="" class="stamp-logo" />' : ''}</span>`;
     }).join('');
     zone.innerHTML = `
       <div class="card-stage">
@@ -531,7 +581,7 @@ function renderDashboardTabContent() {
           <div class="card-face front">
             <div class="card-top-row">
               <span class="card-logo">HAIRSPRIT</span>
-              <div class="card-chip">${icon('scissors')}</div>
+              <div class="card-chip"><img src="/logo.jpg" alt="" class="card-chip-logo" /></div>
             </div>
             <div>
               <div class="card-name">${c.prenom} ${c.nom}</div>
