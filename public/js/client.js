@@ -36,6 +36,22 @@ async function api(path, options = {}) {
   return data;
 }
 
+// Versets bibliques (Louis Segond 1910, domaine public) associés à chaque tampon gagné
+const BIBLE_VERSES = [
+  '« L\'Éternel est mon berger : je ne manquerai de rien. » — Psaume 23:1',
+  '« Tout ce que vous faites, faites-le de bon cœur. » — Colossiens 3:23',
+  '« Rendez grâces en toutes choses. » — 1 Thessaloniciens 5:18',
+  '« La joie de l\'Éternel sera votre force. » — Néhémie 8:10',
+  '« Confie-toi en l\'Éternel de tout ton cœur. » — Proverbes 3:5',
+  '« Je puis tout par celui qui me fortifie. » — Philippiens 4:13',
+  '« L\'amour est patient, il est plein de bonté. » — 1 Corinthiens 13:4',
+  '« Que votre cœur ne se trouble point. » — Jean 14:1',
+  '« Heureux ceux qui ont le cœur pur. » — Matthieu 5:8',
+  '« Le Seigneur est bon envers tous. » — Psaume 145:9',
+  '« Chantez à l\'Éternel un cantique nouveau. » — Psaume 96:1',
+  '« Que la grâce du Seigneur soit avec vous. » — Apocalypse 22:21',
+];
+
 function icon(name) {
   const icons = {
     scissors: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.5 8.5 19 19M8.5 15.5 19 5"/></svg>',
@@ -499,6 +515,16 @@ function renderDashboardTabContent() {
 
   if (state.dashboardTab === 'card') {
     const initials = `${c.prenom[0] || ''}${c.nom[0] || ''}`.toUpperCase();
+    const activeThresholds = state.rewards.filter(r => r.points_required > 0).map(r => r.points_required);
+    const nextThreshold = activeThresholds.filter(t => t > c.points).sort((a, b) => a - b)[0];
+    const stampGoal = Math.max(nextThreshold || 0, ...activeThresholds, c.points, 10);
+    const remaining = nextThreshold ? nextThreshold - c.points : 0;
+    const tilts = [-8, 5, -3, 9, -6, 4, -10, 7, -4, 6, -7, 3];
+    const stampsHtml = Array.from({ length: stampGoal }, (_, i) => {
+      const isFilled = i < c.points;
+      const isLast = isFilled && i === c.points - 1;
+      return `<span class="stamp ${isFilled ? 'filled' : ''} ${isLast ? 'stamp-new' : ''}" style="--tilt:${tilts[i % tilts.length]}deg;">${isFilled ? icon('scissors') : ''}</span>`;
+    }).join('');
     zone.innerHTML = `
       <div class="card-stage">
         <div class="loyalty-card ${state.cardFlipped ? 'flipped' : ''}" id="loyalty-card">
@@ -510,6 +536,9 @@ function renderDashboardTabContent() {
             <div>
               <div class="card-name">${c.prenom} ${c.nom}</div>
             </div>
+            <div class="stamp-row">${stampsHtml}</div>
+            ${remaining > 0 ? `<div class="stamp-caption">✂️ Plus que ${remaining} coupe${remaining > 1 ? 's' : ''} avant ta récompense !</div>` : (c.points > 0 ? `<div class="stamp-caption">🎉 Récompense débloquée !</div>` : '')}
+            ${c.points > 0 ? `<div class="verse-caption">${BIBLE_VERSES[Math.floor(Math.random() * BIBLE_VERSES.length)]}</div>` : ''}
             <div class="card-bottom-row">
               <div>
                 <div class="card-points-label">Points fidélité</div>
