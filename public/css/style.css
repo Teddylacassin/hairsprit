@@ -308,9 +308,9 @@ a { color: inherit; }
   letter-spacing: 1px;
 }
 .card-chip {
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
   background: var(--panel-2);
   display: flex;
   align-items: center;
@@ -360,8 +360,8 @@ a { color: inherit; }
   margin: 4px 0 2px;
 }
 .stamp {
-  width: 22px;
-  height: 22px;
+  width: 27px;
+  height: 27px;
   border-radius: 50%;
   border: 1.5px dashed rgba(247, 246, 243, 0.35);
   display: flex;
@@ -730,16 +730,16 @@ tr:last-child td { border-bottom: none; }
   margin-top: 4px;
 }
 .card-chip-logo {
+  width: 22px;
+  height: 22px;
+  object-fit: cover;
+  border-radius: 5px;
+}
+.stamp-logo {
   width: 18px;
   height: 18px;
   object-fit: cover;
   border-radius: 4px;
-}
-.stamp-logo {
-  width: 14px;
-  height: 14px;
-  object-fit: cover;
-  border-radius: 3px;
 }
 .stamp-celebration {
   position: fixed;
