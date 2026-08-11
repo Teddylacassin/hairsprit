@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { signToken, requireAdminAuth } = require('../middleware/auth');
+const pointsEmitter = require('../events');
 
 const router = express.Router();
 
@@ -118,6 +119,7 @@ router.post('/client/:id/reset', requireAdminAuth, async (req, res) => {
   }
 
   const updated = await db.get('SELECT * FROM clients WHERE id = ?', [targetClient.id]);
+  pointsEmitter.emit(`points:${targetClient.id}`, { type: 'reset', points: 0 });
   res.json({ client: clientPublic(updated) });
 });
 
@@ -144,6 +146,7 @@ router.post('/client/:id/point', requireAdminAuth, async (req, res) => {
   }
 
   const updated = await db.get('SELECT * FROM clients WHERE id = ?', [targetClient.id]);
+  pointsEmitter.emit(`points:${targetClient.id}`, { type: 'point_added', points: updated.points, added: points });
   res.json({ client: clientPublic(updated) });
 });
 
