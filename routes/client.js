@@ -3,8 +3,9 @@ const { v4: uuidv4 } = require('uuid');
 const QRCode = require('qrcode');
 const bcrypt = require('bcryptjs');
 const db = require('../db');
-const { signToken, requireClientAuth } = require('../middleware/auth');
+const { signToken, requireClientAuth, verifyToken } = require('../middleware/auth');
 const { sendBookingAlertEmail } = require('../notify');
+const pointsEmitter = require('../events');
 
 const router = express.Router();
 
@@ -135,6 +136,41 @@ router.post('/login', async (req, res) => {
     console.error(e);
     res.status(500).json({ error: 'Erreur serveur.' });
   }
+});
+
+// GET /api/client/points-stream?token=... -> flux temps réel (SSE) prévenant le client
+// dès qu'un point lui est ajouté. Le token est passé en paramètre d'URL car le navigateur
+// ne permet pas d'ajouter d'en-tête d'authentification à ce type de connexion.
+router.get('/points-stream', (req, res) => {
+  let decoded;
+  try {
+    decoded = verifyToken(req.query.token);
+    if (decoded.role !== 'client') throw new Error('rôle invalide');
+  } catch (e) {
+    return res.status(401).end();
+  }
+  const clientId = decoded.id;
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+  res.write('\n');
+
+  const listener = (data) => {
+    try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch (e) { /* connexion fermée */ }
+  };
+  pointsEmitter.on(`points:${clientId}`, listener);
+
+  const keepAlive = setInterval(() => {
+    try { res.write(':\n\n'); } catch (e) { /* connexion fermée */ }
+  }, 20000);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    pointsEmitter.off(`points:${clientId}`, listener);
+  });
 });
 
 // GET /api/client/me
