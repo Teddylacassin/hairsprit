@@ -598,6 +598,7 @@ async function renderServicesTab(main) {
         <div class="field" style="flex:1;"><label>Prix (€)</label><input name="price" type="number" min="0" step="0.5" required /></div>
         <div class="field" style="flex:1;"><label>Durée (min)</label><input name="duration_minutes" type="number" min="5" step="5" value="30" required /></div>
       </div>
+      <div class="field"><label>Prix groupe (€, à partir de 3 personnes, optionnel)</label><input name="group_price" type="number" min="0" step="0.5" placeholder="Laisser vide = pas de tarif groupe" /></div>
       <div class="field"><label>Description</label><input name="description" placeholder="Détail de la prestation" /></div>
       <button class="btn btn-outline" type="submit">Ajouter</button>
     </form>
@@ -607,7 +608,8 @@ async function renderServicesTab(main) {
     <div class="reward-admin-row" data-id="${s.id}">
       <div class="grow">
         <input class="edit-name" value="${s.name.replace(/"/g, '&quot;')}" style="width:100%;margin-bottom:6px;" />
-        <input class="edit-desc" value="${(s.description || '').replace(/"/g, '&quot;')}" style="width:100%;" />
+        <input class="edit-desc" value="${(s.description || '').replace(/"/g, '&quot;')}" style="width:100%;margin-bottom:6px;" />
+        <input class="edit-group-price" type="number" min="0" step="0.5" value="${s.group_price != null ? s.group_price : ''}" placeholder="Prix groupe 3+ (optionnel)" style="width:100%;" />
       </div>
       <input class="edit-price" type="number" min="0" step="0.5" value="${s.price}" style="width:80px;" title="Prix (€)" />
       <input class="edit-duration" type="number" min="5" step="5" value="${s.duration_minutes || 30}" style="width:70px;" title="Durée (min)" />
@@ -631,6 +633,7 @@ async function renderServicesTab(main) {
             description: row.querySelector('.edit-desc').value,
             price: row.querySelector('.edit-price').value,
             duration_minutes: row.querySelector('.edit-duration').value,
+            group_price: row.querySelector('.edit-group-price').value,
             active: row.querySelector('.edit-active').checked,
           }),
         });
@@ -660,6 +663,7 @@ async function renderServicesTab(main) {
           price: fd.get('price'),
           description: fd.get('description'),
           duration_minutes: fd.get('duration_minutes'),
+          group_price: fd.get('group_price'),
         }),
       });
       renderServicesTab(main);
