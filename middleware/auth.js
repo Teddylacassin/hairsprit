@@ -1,18 +1,22 @@
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production-please';
+const SECRET = process.env.JWT_SECRET || 'hairsprit-secret-2026-xk9m2p';
 
 function signToken(payload) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '180d' });
+  return jwt.sign(payload, SECRET, { expiresIn: '365d' });
+}
+
+function verifyToken(token) {
+  return jwt.verify(token, SECRET);
 }
 
 function requireClientAuth(req, res, next) {
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'Non authentifié.' });
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    if (decoded.role !== 'client') throw new Error('bad role');
+    const decoded = jwt.verify(token, SECRET);
+    if (decoded.role !== 'client') return res.status(403).json({ error: 'Accès refusé.' });
     req.clientId = decoded.id;
     next();
   } catch (e) {
@@ -21,12 +25,12 @@ function requireClientAuth(req, res, next) {
 }
 
 function requireAdminAuth(req, res, next) {
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'Non authentifié.' });
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    if (decoded.role !== 'admin') throw new Error('bad role');
+    const decoded = jwt.verify(token, SECRET);
+    if (decoded.role !== 'admin') return res.status(403).json({ error: 'Accès refusé.' });
     req.adminId = decoded.id;
     next();
   } catch (e) {
@@ -34,4 +38,4 @@ function requireAdminAuth(req, res, next) {
   }
 }
 
-module.exports = { signToken, requireClientAuth, requireAdminAuth };
+module.exports = { signToken, verifyToken, requireClientAuth, requireAdminAuth };
