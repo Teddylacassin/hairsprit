@@ -494,6 +494,44 @@ function playStampCelebration() {
   setTimeout(() => overlay.remove(), 2200);
 }
 
+function celebrateRewardTap(rewardName) {
+  const overlay = document.createElement('div');
+  overlay.className = 'stamp-celebration';
+  const emojis = ['🎁', '🎉', '⭐', '✨', '🏆'];
+  let confetti = '';
+  for (let i = 0; i < 22; i++) {
+    const left = Math.random() * 100;
+    const delay = Math.random() * 0.4;
+    const emoji = emojis[Math.floor(Math.random() * emojis.length)];
+    confetti += `<span class="confetti-piece" style="left:${left}%;animation-delay:${delay}s;">${emoji}</span>`;
+  }
+  overlay.innerHTML = `
+    ${confetti}
+    <div class="stamp-celebration-badge">
+      <div class="stamp-celebration-icon">🎁</div>
+      <div class="stamp-celebration-text">${rewardName}</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  if (navigator.vibrate) { try { navigator.vibrate([30, 20, 30, 20, 60]); } catch (e) {} }
+  setTimeout(() => overlay.remove(), 1800);
+}
+
+function shakeLockedReward(card, remaining) {
+  card.classList.add('reward-shake');
+  if (navigator.vibrate) { try { navigator.vibrate(25); } catch (e) {} }
+  const existingHint = card.querySelector('.reward-hint');
+  if (existingHint) existingHint.remove();
+  const hint = document.createElement('div');
+  hint.className = 'reward-hint';
+  hint.textContent = `🔒 Encore ${remaining} point${remaining > 1 ? 's' : ''} !`;
+  card.appendChild(hint);
+  setTimeout(() => {
+    card.classList.remove('reward-shake');
+    hint.remove();
+  }, 1400);
+}
+
 /* ---------------- DASHBOARD ---------------- */
 async function toggleCardFlip() {
   state.cardFlipped = !state.cardFlipped;
@@ -756,8 +794,9 @@ function renderDashboardTabContent() {
         ${state.rewards.length === 0 ? `<div class="empty-state">Aucune récompense disponible pour le moment.</div>` : ''}
         ${state.rewards.map(r => {
           const unlocked = c.points >= r.points_required;
+          const remaining = Math.max(0, r.points_required - c.points);
           return `
-            <div class="reward-card ${unlocked ? 'unlocked' : ''}">
+            <div class="reward-card ${unlocked ? 'unlocked' : ''}" data-reward-id="${r.id}" data-unlocked="${unlocked}" data-remaining="${remaining}" data-name="${r.name.replace(/"/g, '&quot;')}" style="cursor:pointer;">
               <div>
                 <div class="reward-name">${r.name}</div>
                 <div class="reward-desc">${r.description || ''}</div>
@@ -770,6 +809,15 @@ function renderDashboardTabContent() {
         }).join('')}
       </div>
     `;
+    zone.querySelectorAll('.reward-card[data-reward-id]').forEach(card => {
+      card.onclick = () => {
+        if (card.dataset.unlocked === 'true') {
+          celebrateRewardTap(card.dataset.name);
+        } else {
+          shakeLockedReward(card, parseInt(card.dataset.remaining, 10));
+        }
+      };
+    });
     return;
   }
 
