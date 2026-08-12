@@ -678,7 +678,7 @@ function renderDashboardTabContent() {
               <div class="path-line"></div>
               <div class="path-progress" style="width:${walkPercent}%;"></div>
               ${milestonesHtml}
-              <div class="house">🏠</div>
+              <div class="house">🏆</div>
               ${!isHappy ? `<div class="puff puff1" style="left:${Math.max(0, walkPercent - 9)}%;"></div><div class="puff puff2" style="left:${Math.max(0, walkPercent - 12)}%;"></div>` : `
                 <div class="sparkle" style="left:${walkPercent - 6}%;top:14px;--dx:-14px;--dy:-10px;">✨</div>
                 <div class="sparkle" style="left:${walkPercent + 6}%;top:18px;--dx:12px;--dy:-14px;animation-delay:0.3s;">⭐</div>
