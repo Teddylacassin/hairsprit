@@ -276,8 +276,8 @@ a { color: inherit; }
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
 }
 .card-face.front {
-  background: linear-gradient(135deg, #1a1a1d, #0b0b0c);
-  border: 1px solid var(--ligne);
+  background: radial-gradient(circle at 15% 0%, rgba(127, 216, 143, 0.22) 0%, transparent 55%), linear-gradient(135deg, #1a1a1d, #0b0b0c);
+  border: 1px solid #2f4a38;
 }
 .card-face.back {
   background: var(--blanc);
@@ -352,54 +352,154 @@ a { color: inherit; }
   margin-bottom: 18px;
 }
 
-/* ---------------- STAMPS (fidélité visuelle) ---------------- */
-.stamp-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 4px 0 2px;
+/* ---------------- CAMIONNETTE HAIRSPRIT (progression fidélité) ---------------- */
+.path-wrap {
+  position: relative;
+  height: 50px;
+  margin: 8px 0 4px;
 }
-.stamp {
-  width: 27px;
-  height: 27px;
+.path-line {
+  position: absolute;
+  top: 36px;
+  left: 4px;
+  right: 4px;
+  height: 3px;
+  border-radius: 3px;
+  background-image: linear-gradient(to right, #444 50%, transparent 0%);
+  background-size: 8px 3px;
+  background-repeat: repeat-x;
+}
+.path-progress {
+  position: absolute;
+  top: 36px;
+  left: 4px;
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #e0716b, #e8b84b, #7fd88f);
+  transition: width 0.8s cubic-bezier(0.34, 1.2, 0.64, 1);
+}
+.milestone {
+  position: absolute;
+  top: 32px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  border: 1.5px dashed rgba(247, 246, 243, 0.35);
+  background: var(--noir);
+  border: 2px solid var(--ligne);
+  transform: translateX(-50%);
+  transition: border-color 0.4s ease, background 0.4s ease;
+}
+.milestone.reached {
+  background: var(--succes);
+  border-color: var(--succes);
+  box-shadow: 0 0 6px rgba(127, 216, 143, 0.5);
+}
+.house {
+  position: absolute;
+  top: 4px;
+  right: -4px;
+  font-size: 20px;
+}
+.puff {
+  position: absolute;
+  top: 22px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--argent);
+  opacity: 0;
+}
+.puff1 { animation: puff-pop 0.7s ease-out infinite; }
+.puff2 { width: 4px; height: 4px; animation: puff-pop 0.7s ease-out infinite 0.25s; }
+@keyframes puff-pop {
+  0% { opacity: 0.5; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-14px, -8px) scale(0.4); }
+}
+.van {
+  position: absolute;
+  top: 0;
+  width: 34px;
+  height: 24px;
+  transform: translateX(-50%);
+}
+.van.driving { animation: shake 0.25s linear infinite; }
+@keyframes shake {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(-1.5px); }
+}
+.van svg { width: 100%; height: 100%; overflow: visible; }
+.wheel { transform-origin: center; animation: spin 0.4s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.van.happy { animation: van-bounce 0.45s ease-in-out infinite; }
+@keyframes van-bounce {
+  0%, 100% { transform: translateX(-50%) translateY(0) rotate(0deg); }
+  50% { transform: translateX(-50%) translateY(-6px) rotate(-3deg); }
+}
+.van-body { fill: #e0524a; }
+.happy .van-body { animation: van-color 0.9s ease-in-out infinite; }
+@keyframes van-color { 0%, 100% { fill: #7fd88f; } 50% { fill: #e8b84b; } }
+.sparkle {
+  position: absolute;
+  font-size: 12px;
+  animation: sparkle-fly 1s ease-out infinite;
+  opacity: 0;
+}
+@keyframes sparkle-fly {
+  0% { opacity: 1; transform: translate(0, 0) scale(0.6) rotate(0deg); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(1.1) rotate(90deg); }
+}
+.honk {
+  position: absolute;
+  font-size: 11px;
+  color: var(--succes);
+  font-weight: 700;
+  animation: honk-float 1s ease-out infinite;
+  opacity: 0;
+}
+@keyframes honk-float {
+  0% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-16px); }
+}
+.pole-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transform: rotate(0deg);
-}
-.stamp.filled {
-  border: none;
-  background: var(--succes);
-  color: #0b0b0c;
-  transform: rotate(var(--tilt, 0deg));
-  box-shadow: 0 2px 6px rgba(127, 216, 143, 0.35);
-}
-.stamp.filled svg {
-  width: 12px;
-  height: 12px;
-}
-.stamp.stamp-new {
-  animation: stamp-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-@keyframes stamp-pop {
-  0% { transform: rotate(var(--tilt, 0deg)) scale(0); opacity: 0; }
-  60% { transform: rotate(var(--tilt, 0deg)) scale(1.3); opacity: 1; }
-  100% { transform: rotate(var(--tilt, 0deg)) scale(1); }
-}
-.stamp-caption {
-  font-size: 11px;
-  color: var(--argent-clair);
   margin: 2px 0 4px;
+}
+.pole-info {
+  flex: 1;
+}
+.pole-pts {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+}
+.pole-total {
+  font-size: 12px;
+  color: var(--argent);
+  font-weight: 400;
+}
+.pole-caption {
+  font-size: 12.5px;
+  color: var(--succes);
+  margin-top: 6px;
+}
+.pole-sub {
+  font-size: 11px;
+  color: var(--argent);
+  margin-top: 1px;
 }
 .verse-caption {
   font-size: 10.5px;
   font-style: italic;
   color: var(--argent);
-  margin: 0 0 6px;
+  margin: 8px 0 0;
   line-height: 1.4;
+}
+@media (prefers-reduced-motion: reduce) {
+  .van.driving, .van.happy, .wheel, .happy .van-body, .puff, .sparkle, .honk {
+    animation: none;
+  }
 }
 
 /* ---------------- REWARDS ---------------- */
@@ -734,12 +834,6 @@ tr:last-child td { border-bottom: none; }
   height: 22px;
   object-fit: cover;
   border-radius: 5px;
-}
-.stamp-logo {
-  width: 18px;
-  height: 18px;
-  object-fit: cover;
-  border-radius: 4px;
 }
 .stamp-celebration {
   position: fixed;
