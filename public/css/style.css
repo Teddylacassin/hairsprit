@@ -29,12 +29,32 @@ html, body {
 body {
   min-height: 100vh;
   padding-bottom: env(safe-area-inset-bottom);
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0px, rgba(255, 255, 255, 0.02) 1px, transparent 1px, transparent 26px),
+    radial-gradient(ellipse 900px 700px at 12% -10%, rgba(127, 216, 143, 0.16), transparent 55%),
+    radial-gradient(ellipse 800px 600px at 108% 22%, rgba(232, 184, 75, 0.13), transparent 55%),
+    radial-gradient(ellipse 1000px 800px at 50% 112%, rgba(224, 113, 107, 0.11), transparent 55%),
+    radial-gradient(ellipse 1400px 1100px at 50% 45%, #16161a 0%, #0a0a0b 72%);
+  background-attachment: fixed;
+  position: relative;
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 #app {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  position: relative;
+  z-index: 1;
 }
 
 a { color: inherit; }
@@ -524,6 +544,31 @@ a { color: inherit; }
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+  position: relative;
+  transition: transform 0.15s ease;
+}
+.reward-card:active {
+  transform: scale(0.97);
+}
+.reward-card.reward-shake {
+  animation: reward-shake-anim 0.4s ease;
+}
+@keyframes reward-shake-anim {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+.reward-hint {
+  position: absolute;
+  bottom: -22px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 11px;
+  color: var(--succes);
+  animation: fade-in 0.15s ease;
 }
 .reward-card.unlocked {
   border-color: #2c4a34;
