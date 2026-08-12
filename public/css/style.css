@@ -495,6 +495,13 @@ a { color: inherit; }
   color: var(--argent);
   margin: 4px 0 0;
   line-height: 1.35;
+  max-height: 28px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.verse-caption::-webkit-scrollbar {
+  display: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .van.driving, .van.happy, .wheel, .happy .van-body, .puff, .sparkle, .honk {
