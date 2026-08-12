@@ -986,7 +986,7 @@ function openBookingSheet() {
 
   let selectedSlot = null;
   let peopleCount = 1;
-  let personServiceIds = [];
+  let personServiceIds = []; // tableau de tableaux : personServiceIds[i] = liste des id de prestations pour la personne i
   let allServices = [];
 
   function personPrice(s) {
@@ -994,22 +994,28 @@ function openBookingSheet() {
     if (peopleCount >= 3 && s.group_price != null && s.group_price !== '') return parseFloat(s.group_price);
     return parseFloat(s.price);
   }
-  function totalDuration() {
-    return personServiceIds.reduce((sum, sid) => {
+  function personServicesSum(ids, field) {
+    return ids.reduce((sum, sid) => {
       const s = allServices.find(sv => sv.id === sid);
-      return sum + (s ? s.duration_minutes : 30);
+      if (!s) return sum;
+      return sum + (field === 'duration' ? s.duration_minutes : personPrice(s));
     }, 0);
+  }
+  function totalDuration() {
+    return personServiceIds.reduce((sum, ids) => sum + personServicesSum(ids, 'duration'), 0);
   }
   function totalPrice() {
-    return personServiceIds.reduce((sum, sid) => {
-      const s = allServices.find(sv => sv.id === sid);
-      return sum + personPrice(s);
-    }, 0);
+    return personServiceIds.reduce((sum, ids) => sum + personServicesSum(ids, 'price'), 0);
   }
   function bookingDetailsText() {
-    return personServiceIds.map((sid, i) => {
-      const s = allServices.find(sv => sv.id === sid);
-      return `Personne ${i + 1} : ${s ? s.name : 'Prestation'} (${personPrice(s).toFixed(2)}€, ${s ? s.duration_minutes : 30}min)`;
+    return personServiceIds.map((ids, i) => {
+      const names = ids.map(sid => {
+        const s = allServices.find(sv => sv.id === sid);
+        return s ? s.name : 'Prestation';
+      }).join(' + ');
+      const price = personServicesSum(ids, 'price');
+      const duration = personServicesSum(ids, 'duration');
+      return `Personne ${i + 1} : ${names} (${price.toFixed(2)}€, ${duration}min)`;
     }).join(' · ');
   }
 
@@ -1027,7 +1033,7 @@ function openBookingSheet() {
     }
 
     if (personServiceIds.length !== peopleCount) {
-      personServiceIds = Array.from({ length: peopleCount }, (_, i) => personServiceIds[i] || allServices[0].id);
+      personServiceIds = Array.from({ length: peopleCount }, (_, i) => personServiceIds[i] || [allServices[0].id]);
     }
 
     zone.innerHTML = `
@@ -1038,12 +1044,18 @@ function openBookingSheet() {
         <button type="button" class="btn btn-outline" id="people-plus" style="width:44px;">+</button>
       </div>
       ${peopleCount >= 3 ? `<div style="color:var(--succes);font-size:12.5px;margin-bottom:14px;">🎉 Tarif groupe appliqué (3 personnes ou plus)</div>` : ''}
-      ${personServiceIds.map((sid, i) => `
+      ${personServiceIds.map((ids, i) => `
         <div class="field">
-          <label>Prestation — Personne ${i + 1}</label>
-          <select class="person-service-select" data-index="${i}" style="width:100%;background:var(--panel);border:1px solid var(--ligne);color:var(--blanc);padding:12px 14px;border-radius:10px;font-size:14px;">
-            ${allServices.map(s => `<option value="${s.id}" ${s.id === sid ? 'selected' : ''}>${s.name} — ${personPrice(s).toFixed(2)}€${peopleCount >= 3 && s.group_price != null ? ' (groupe)' : ''} (${s.duration_minutes}min)</option>`).join('')}
-          </select>
+          <label>Prestations — Personne ${i + 1} <span style="text-transform:none;letter-spacing:0;color:var(--argent);">(coche tout ce qu'il faut)</span></label>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            ${allServices.map(s => `
+              <label style="display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--ligne);border-radius:8px;padding:11px 12px;font-size:13.5px;cursor:pointer;">
+                <input type="checkbox" class="person-service-check" data-person="${i}" data-service="${s.id}" ${ids.includes(s.id) ? 'checked' : ''} />
+                <span style="flex:1;">${s.name}</span>
+                <span style="font-family:var(--font-mono);color:var(--argent-clair);">${personPrice(s).toFixed(2)}€${peopleCount >= 3 && s.group_price != null ? ' (groupe)' : ''} · ${s.duration_minutes}min</span>
+              </label>
+            `).join('')}
+          </div>
         </div>
       `).join('')}
       <div style="display:flex;justify-content:space-between;font-size:13.5px;color:var(--argent);margin:10px 0 18px;">
@@ -1059,9 +1071,18 @@ function openBookingSheet() {
     zone.querySelector('#people-plus').onclick = () => {
       if (peopleCount < 6) { peopleCount++; loadPeopleAndServices(); }
     };
-    zone.querySelectorAll('.person-service-select').forEach(sel => {
-      sel.onchange = () => {
-        personServiceIds[parseInt(sel.dataset.index, 10)] = sel.value;
+    zone.querySelectorAll('.person-service-check').forEach(chk => {
+      chk.onchange = () => {
+        const personIdx = parseInt(chk.dataset.person, 10);
+        const serviceId = chk.dataset.service;
+        if (chk.checked) {
+          if (!personServiceIds[personIdx].includes(serviceId)) personServiceIds[personIdx].push(serviceId);
+        } else if (personServiceIds[personIdx].length > 1) {
+          personServiceIds[personIdx] = personServiceIds[personIdx].filter(id => id !== serviceId);
+        } else {
+          chk.checked = true; // au moins une prestation obligatoire par personne
+          return;
+        }
         loadPeopleAndServices();
       };
     });
@@ -1134,7 +1155,7 @@ function openBookingSheet() {
             body: JSON.stringify({
               message,
               slot_datetime: selectedSlot,
-              service_id: personServiceIds[0] || null,
+              service_id: (personServiceIds[0] && personServiceIds[0][0]) || null,
               people_count: peopleCount,
               total_duration_minutes: duration || undefined,
               booking_details: allServices.length > 0 ? bookingDetailsText() : undefined,
