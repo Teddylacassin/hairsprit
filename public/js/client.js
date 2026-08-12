@@ -50,6 +50,9 @@ const BIBLE_VERSES = [
   '« Le Seigneur est bon envers tous. » — Psaume 145:9',
   '« Chantez à l\'Éternel un cantique nouveau. » — Psaume 96:1',
   '« Que la grâce du Seigneur soit avec vous. » — Apocalypse 22:21',
+  '« Dieu est amour. » — 1 Jean 4:8',
+  '« L\'Éternel te bénira et te gardera. » — Nombres 6:24',
+  '« Que tout ce que vous faites soit fait avec amour. » — 1 Corinthiens 16:14',
 ];
 
 function icon(name) {
@@ -569,11 +572,12 @@ function renderDashboardTabContent() {
     const nextThreshold = activeThresholds.filter(t => t > c.points).sort((a, b) => a - b)[0];
     const stampGoal = Math.max(nextThreshold || 0, ...activeThresholds, c.points, 10);
     const remaining = nextThreshold ? nextThreshold - c.points : 0;
-    const tilts = [-8, 5, -3, 9, -6, 4, -10, 7, -4, 6, -7, 3];
-    const stampsHtml = Array.from({ length: stampGoal }, (_, i) => {
-      const isFilled = i < c.points;
-      const isLast = isFilled && i === c.points - 1;
-      return `<span class="stamp ${isFilled ? 'filled' : ''} ${isLast ? 'stamp-new' : ''}" style="--tilt:${tilts[i % tilts.length]}deg;">${isFilled ? '<img src="/logo.jpg" alt="" class="stamp-logo" />' : ''}</span>`;
+    const walkPercent = Math.min(96, Math.max(4, Math.round((c.points / stampGoal) * 100)));
+    const isHappy = c.points > 0 && activeThresholds.includes(c.points);
+    const milestonesHtml = activeThresholds.filter(t => t <= stampGoal).map(t => {
+      const pos = Math.min(100, Math.round((t / stampGoal) * 100));
+      const reached = c.points >= t;
+      return `<div class="milestone ${reached ? 'reached' : ''}" style="left:${pos}%;" title="${t} points"></div>`;
     }).join('');
     zone.innerHTML = `
       <div class="card-stage">
@@ -586,8 +590,34 @@ function renderDashboardTabContent() {
             <div>
               <div class="card-name">${c.prenom} ${c.nom}</div>
             </div>
-            <div class="stamp-row">${stampsHtml}</div>
-            ${remaining > 0 ? `<div class="stamp-caption">✂️ Plus que ${remaining} coupe${remaining > 1 ? 's' : ''} avant ta récompense !</div>` : (c.points > 0 ? `<div class="stamp-caption">🎉 Récompense débloquée !</div>` : '')}
+            <div class="path-wrap">
+              <div class="path-line"></div>
+              <div class="path-progress" style="width:${walkPercent}%;"></div>
+              ${milestonesHtml}
+              <div class="house">🏠</div>
+              ${!isHappy ? `<div class="puff puff1" style="left:${Math.max(0, walkPercent - 9)}%;"></div><div class="puff puff2" style="left:${Math.max(0, walkPercent - 12)}%;"></div>` : `
+                <div class="sparkle" style="left:${walkPercent - 6}%;top:14px;--dx:-14px;--dy:-10px;">✨</div>
+                <div class="sparkle" style="left:${walkPercent + 6}%;top:18px;--dx:12px;--dy:-14px;animation-delay:0.3s;">⭐</div>
+                <div class="honk" style="left:${walkPercent - 5}%;top:0;">Toot!</div>
+              `}
+              <div class="van ${isHappy ? 'happy' : 'driving'}" style="left:${walkPercent}%;">
+                <svg viewBox="0 0 36 26" fill="none">
+                  <path class="van-body" d="M2 10 L2 20 L34 20 L34 12 L26 12 L22 6 L8 6 L2 10 Z"/>
+                  <rect x="9" y="8" width="7" height="5" rx="1" fill="#cfe8ff"/>
+                  <rect x="18" y="8" width="6" height="5" rx="1" fill="#cfe8ff"/>
+                  <circle class="wheel" cx="10" cy="20" r="3.4" fill="#111"/>
+                  <circle class="wheel" cx="27" cy="20" r="3.4" fill="#111"/>
+                  <circle cx="10" cy="20" r="1.2" fill="#666"/>
+                  <circle cx="27" cy="20" r="1.2" fill="#666"/>
+                </svg>
+              </div>
+            </div>
+            <div class="pole-row">
+              <div class="pole-info">
+                <div class="pole-pts">${c.points} <span class="pole-total">/ ${stampGoal}</span></div>
+                ${remaining > 0 ? `<div class="pole-caption">✂️ Plus que ${remaining} coupe${remaining > 1 ? 's' : ''}</div><div class="pole-sub">avant ta récompense !</div>` : (c.points > 0 ? `<div class="pole-caption">🎉 Récompense débloquée !</div>` : '')}
+              </div>
+            </div>
             ${c.points > 0 ? `<div class="verse-caption">${BIBLE_VERSES[Math.floor(Math.random() * BIBLE_VERSES.length)]}</div>` : ''}
             <div class="card-bottom-row">
               <div>
