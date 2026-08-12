@@ -256,7 +256,7 @@ a { color: inherit; }
 .loyalty-card {
   position: relative;
   width: 100%;
-  height: 310px;
+  height: 282px;
   cursor: pointer;
   transform-style: preserve-3d;
   transition: transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1);
@@ -318,9 +318,9 @@ a { color: inherit; }
   color: var(--argent-clair);
 }
 .card-name {
-  font-size: 14px;
+  font-size: 13px;
   color: #d8d8d8;
-  margin-top: 6px;
+  margin-top: 2px;
 }
 .card-bottom-row {
   display: flex;
@@ -355,12 +355,12 @@ a { color: inherit; }
 /* ---------------- CAMIONNETTE HAIRSPRIT (progression fidélité) ---------------- */
 .path-wrap {
   position: relative;
-  height: 50px;
-  margin: 8px 0 4px;
+  height: 38px;
+  margin: 4px 0 2px;
 }
 .path-line {
   position: absolute;
-  top: 36px;
+  top: 22px;
   left: 4px;
   right: 4px;
   height: 3px;
@@ -371,7 +371,7 @@ a { color: inherit; }
 }
 .path-progress {
   position: absolute;
-  top: 36px;
+  top: 22px;
   left: 4px;
   height: 3px;
   border-radius: 3px;
@@ -380,7 +380,7 @@ a { color: inherit; }
 }
 .milestone {
   position: absolute;
-  top: 32px;
+  top: 18px;
   width: 9px;
   height: 9px;
   border-radius: 50%;
@@ -396,13 +396,13 @@ a { color: inherit; }
 }
 .house {
   position: absolute;
-  top: 4px;
+  top: 2px;
   right: -4px;
-  font-size: 20px;
+  font-size: 18px;
 }
 .puff {
   position: absolute;
-  top: 22px;
+  top: 18px;
   width: 5px;
   height: 5px;
   border-radius: 50%;
@@ -418,8 +418,8 @@ a { color: inherit; }
 .van {
   position: absolute;
   top: 0;
-  width: 34px;
-  height: 24px;
+  width: 28px;
+  height: 20px;
   transform: translateX(-50%);
 }
 .van.driving { animation: shake 0.25s linear infinite; }
@@ -463,38 +463,38 @@ a { color: inherit; }
 .pole-row {
   display: flex;
   align-items: center;
-  margin: 2px 0 4px;
+  margin: 0 0 2px;
 }
 .pole-info {
   flex: 1;
 }
 .pole-pts {
   font-family: var(--font-mono);
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 600;
   line-height: 1;
 }
 .pole-total {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--argent);
   font-weight: 400;
 }
 .pole-caption {
-  font-size: 12.5px;
+  font-size: 11.5px;
   color: var(--succes);
-  margin-top: 6px;
+  margin-top: 4px;
 }
 .pole-sub {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--argent);
   margin-top: 1px;
 }
 .verse-caption {
-  font-size: 10.5px;
+  font-size: 10px;
   font-style: italic;
   color: var(--argent);
-  margin: 8px 0 0;
-  line-height: 1.4;
+  margin: 4px 0 0;
+  line-height: 1.35;
 }
 @media (prefers-reduced-motion: reduce) {
   .van.driving, .van.happy, .wheel, .happy .van-body, .puff, .sparkle, .honk {
