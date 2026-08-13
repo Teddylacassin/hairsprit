@@ -1,4 +1,4 @@
-jsconst API = '/api/client';
+const API = '/api/client';
 const app = document.getElementById('app');
 
 const state = {
@@ -976,7 +976,6 @@ function openBookingSheet() {
   backdrop.innerHTML = `
     <div class="sheet">
       <h3>Réserver une coupe</h3>
-      <div class="sub">Combien de personnes, et quelle prestation pour chacune ?</div>
       <div id="booking-error"></div>
       <div id="slots-zone"><div class="loading-spin"></div></div>
     </div>
@@ -985,147 +984,188 @@ function openBookingSheet() {
   backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
 
   let selectedSlot = null;
+  let selectedDate = null; // 'YYYY-MM-DD'
   let peopleCount = 1;
-  let personServiceIds = [];
+  let personServiceIds = []; // personServiceIds[i] = liste des id de prestations cochées pour la personne i
+  let expandedPersons = new Set([0]); // quelle(s) liste(s) de prestations sont ouvertes
   let allServices = [];
+  let allSlots = []; // tous les créneaux dispos (ISO), sur 14 jours
 
   function personPrice(s) {
     if (!s) return 0;
     if (peopleCount >= 3 && s.group_price != null && s.group_price !== '') return parseFloat(s.group_price);
     return parseFloat(s.price);
   }
-  function totalDuration() {
-    return personServiceIds.reduce((sum, sid) => {
+  function personSum(ids, field) {
+    return ids.reduce((sum, sid) => {
       const s = allServices.find(sv => sv.id === sid);
-      return sum + (s ? s.duration_minutes : 30);
+      if (!s) return sum;
+      return sum + (field === 'duration' ? s.duration_minutes : personPrice(s));
     }, 0);
+  }
+  function totalDuration() {
+    return personServiceIds.reduce((sum, ids) => sum + personSum(ids, 'duration'), 0);
   }
   function totalPrice() {
-    return personServiceIds.reduce((sum, sid) => {
+    return personServiceIds.reduce((sum, ids) => sum + personSum(ids, 'price'), 0);
+  }
+  function personSummary(ids) {
+    if (ids.length === 0) return 'Choisir les prestations';
+    const names = ids.map(sid => {
       const s = allServices.find(sv => sv.id === sid);
-      return sum + personPrice(s);
-    }, 0);
+      return s ? s.name : '';
+    }).filter(Boolean);
+    return names.join(' + ');
   }
   function bookingDetailsText() {
-    return personServiceIds.map((sid, i) => {
-      const s = allServices.find(sv => sv.id === sid);
-      return `Personne ${i + 1} : ${s ? s.name : 'Prestation'} (${personPrice(s).toFixed(2)}€, ${s ? s.duration_minutes : 30}min)`;
+    return personServiceIds.map((ids, i) => {
+      const names = ids.map(sid => {
+        const s = allServices.find(sv => sv.id === sid);
+        return s ? s.name : 'Prestation';
+      }).join(' + ');
+      return `Personne ${i + 1} : ${names} (${personSum(ids, 'price').toFixed(2)}€)`;
     }).join(' · ');
   }
+  function dateKey(iso) {
+    return new Date(iso).toLocaleDateString('en-CA'); // YYYY-MM-DD en heure locale
+  }
 
-  async function loadPeopleAndServices() {
+  async function loadAll() {
     const zone = backdrop.querySelector('#slots-zone');
+    zone.innerHTML = `<div class="loading-spin"></div>`;
     try {
       const servicesRes = await api('/services');
       allServices = servicesRes.services;
-    } catch (e) { allServices = []; }
-
-    if (allServices.length === 0) {
-      // Pas de tarifs configurés : on passe directement au choix du créneau (durée standard)
-      loadSlots(zone);
+      if (personServiceIds.length !== peopleCount) {
+        personServiceIds = Array.from({ length: peopleCount }, (_, i) => personServiceIds[i] || []);
+      }
+      const duration = allServices.length > 0 ? totalDuration() : null;
+      const slotsRes = await api(`/available-slots${duration ? `?duration=${duration}` : ''}`);
+      allSlots = slotsRes.slots;
+    } catch (e) {
+      zone.innerHTML = `<div class="error-msg">${e.message}</div>`;
       return;
     }
 
-    if (personServiceIds.length !== peopleCount) {
-      personServiceIds = Array.from({ length: peopleCount }, (_, i) => personServiceIds[i] || allServices[0].id);
+    // Jours disponibles (pour limiter le calendrier)
+    const availableDates = [...new Set(allSlots.map(dateKey))].sort();
+    if (!selectedDate || !availableDates.includes(selectedDate)) {
+      selectedDate = availableDates[0] || null;
     }
+    const slotsForDate = selectedDate ? allSlots.filter(iso => dateKey(iso) === selectedDate) : [];
 
     zone.innerHTML = `
       <div class="section-title" style="margin-top:0;">Combien de personnes ?</div>
-      <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">
         <button type="button" class="btn btn-outline" id="people-minus" style="width:44px;">−</button>
         <span style="font-family:var(--font-mono);font-size:20px;min-width:24px;text-align:center;">${peopleCount}</span>
         <button type="button" class="btn btn-outline" id="people-plus" style="width:44px;">+</button>
       </div>
-      ${peopleCount >= 3 ? `<div style="color:var(--succes);font-size:12.5px;margin-bottom:14px;">🎉 Tarif groupe appliqué (3 personnes ou plus)</div>` : ''}
-      ${personServiceIds.map((sid, i) => `
+      ${peopleCount >= 3 ? `<div style="color:var(--succes);font-size:12.5px;margin-bottom:14px;">🎉 Tarif groupe appliqué</div>` : ''}
+
+      ${allServices.length > 0 ? personServiceIds.map((ids, i) => `
         <div class="field">
-          <label>Prestation — Personne ${i + 1}</label>
-          <select class="person-service-select" data-index="${i}" style="width:100%;background:var(--panel);border:1px solid var(--ligne);color:var(--blanc);padding:12px 14px;border-radius:10px;font-size:14px;">
-            ${allServices.map(s => `<option value="${s.id}" ${s.id === sid ? 'selected' : ''}>${s.name} — ${personPrice(s).toFixed(2)}€${peopleCount >= 3 && s.group_price != null ? ' (groupe)' : ''} (${s.duration_minutes}min)</option>`).join('')}
-          </select>
-        </div>
-      `).join('')}
-      <div style="display:flex;justify-content:space-between;font-size:13.5px;color:var(--argent);margin:10px 0 18px;">
-        <span>Durée totale estimée</span>
-        <span style="font-family:var(--font-mono);color:var(--argent-clair);">${totalDuration()} min · ${totalPrice().toFixed(2)}€</span>
-      </div>
-      <button class="btn btn-primary" id="see-slots-btn">Voir les créneaux disponibles</button>
-    `;
-
-    zone.querySelector('#people-minus').onclick = () => {
-      if (peopleCount > 1) { peopleCount--; loadPeopleAndServices(); }
-    };
-    zone.querySelector('#people-plus').onclick = () => {
-      if (peopleCount < 6) { peopleCount++; loadPeopleAndServices(); }
-    };
-    zone.querySelectorAll('.person-service-select').forEach(sel => {
-      sel.onchange = () => {
-        personServiceIds[parseInt(sel.dataset.index, 10)] = sel.value;
-        loadPeopleAndServices();
-      };
-    });
-    zone.querySelector('#see-slots-btn').onclick = () => loadSlots(zone);
-  }
-
-  async function loadSlots(zone) {
-    const duration = allServices.length > 0 ? totalDuration() : null;
-    zone.innerHTML = `<div class="loading-spin"></div>`;
-    try {
-      const res = await api(`/available-slots${duration ? `?duration=${duration}` : ''}`);
-      if (res.slots.length === 0) {
-        zone.innerHTML = `<div class="empty-state">Aucun créneau disponible pour cette durée. Essayez avec moins de personnes, ou contactez le salon directement.</div>
-          <button class="btn btn-ghost" id="back-to-people" style="margin-top:14px;">← Retour</button>`;
-        zone.querySelector('#back-to-people').onclick = () => loadPeopleAndServices();
-        return;
-      }
-      const byDay = {};
-      res.slots.forEach(iso => {
-        const d = new Date(iso);
-        const dayKey = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-        if (!byDay[dayKey]) byDay[dayKey] = [];
-        byDay[dayKey].push(iso);
-      });
-      zone.innerHTML = `
-        ${allServices.length > 0 ? `<div class="section-title" style="margin-top:0;">${peopleCount > 1 ? `${peopleCount} personnes` : bookingDetailsText()} · ${res.durationMinutes} min</div>` : ''}
-        <div style="max-height:340px;overflow-y:auto;">
-          ${Object.entries(byDay).map(([day, slots]) => `
-            <div class="section-title" style="margin-top:16px;">${day}</div>
-            <div style="display:flex;flex-wrap:wrap;gap:8px;">
-              ${slots.map(iso => `
-                <button type="button" class="btn btn-outline slot-btn" data-slot="${iso}" style="width:auto;padding:10px 14px;font-size:13px;">
-                  ${new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                </button>
+          <label>Prestations — Personne ${i + 1}</label>
+          <button type="button" class="btn btn-outline service-toggle-btn" data-person="${i}" style="text-align:left;display:flex;justify-content:space-between;align-items:center;gap:8px;overflow:hidden;">
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${personSummary(ids)}</span>
+            <span style="flex-shrink:0;">${expandedPersons.has(i) ? '▲' : '▼'}</span>
+          </button>
+          ${expandedPersons.has(i) ? `
+            <div style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;margin-top:8px;">
+              ${allServices.map(s => `
+                <label style="display:flex;flex-direction:column;gap:4px;background:var(--panel);border:1px solid var(--ligne);border-radius:8px;padding:10px 12px;font-size:13px;cursor:pointer;flex-shrink:0;">
+                  <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+                    <input type="checkbox" class="person-service-check" data-person="${i}" data-service="${s.id}" ${ids.includes(s.id) ? 'checked' : ''} style="flex-shrink:0;" />
+                    <span style="min-width:0;word-break:break-word;">${s.name}</span>
+                  </div>
+                  <div style="font-family:var(--font-mono);color:var(--argent-clair);font-size:11.5px;padding-left:26px;">${personPrice(s).toFixed(2)}€${peopleCount >= 3 && s.group_price != null ? ' (groupe)' : ''} · ${s.duration_minutes}min</div>
+                </label>
               `).join('')}
             </div>
-          `).join('')}
+          ` : ''}
         </div>
-        <div class="field" style="margin-top:18px;">
-          <label for="message">Message (optionnel)</label>
-          <textarea id="message" name="message" rows="2" placeholder="Précision sur la prestation..."></textarea>
+      `).join('') : ''}
+
+      ${allServices.length > 0 ? `
+        <div style="display:flex;justify-content:space-between;font-size:13.5px;color:var(--argent);margin:16px 0;">
+          <span>Total estimé</span>
+          <span style="font-family:var(--font-mono);color:var(--argent-clair);">${totalDuration()} min · ${totalPrice().toFixed(2)}€</span>
         </div>
-        <button class="btn btn-primary" id="confirm-slot-btn" disabled>Choisissez un créneau</button>
-        <button class="btn btn-ghost" type="button" id="back-to-people-2" style="margin-top:10px;">← Retour</button>
-      `;
+      ` : ''}
 
-      zone.querySelectorAll('.slot-btn').forEach(btn => {
-        btn.onclick = () => {
-          zone.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('unlocked'));
-          btn.classList.add('unlocked');
-          selectedSlot = btn.dataset.slot;
-          const confirmBtn = zone.querySelector('#confirm-slot-btn');
-          confirmBtn.disabled = false;
-          confirmBtn.textContent = `Réserver le ${new Date(selectedSlot).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })} à ${new Date(selectedSlot).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
-        };
-      });
+      <div class="section-title">Choisir un jour</div>
+      ${availableDates.length === 0 ? `<div class="empty-state">Aucun créneau disponible pour le moment. Essayez avec moins de personnes.</div>` : `
+        <div class="field" style="max-width:220px;">
+          <input type="date" id="date-picker" value="${selectedDate}" min="${availableDates[0]}" max="${availableDates[availableDates.length - 1]}" />
+        </div>
+        <div class="section-title">Choisir une heure</div>
+        ${slotsForDate.length === 0 ? `<div class="empty-state">Aucun créneau ce jour-là. Choisissez un autre jour.</div>` : `
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            ${slotsForDate.map(iso => `
+              <button type="button" class="btn ${iso === selectedSlot ? 'btn-primary' : 'btn-outline'} slot-btn" data-slot="${iso}" style="width:auto;padding:10px 14px;font-size:13px;">
+                ${new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+              </button>
+            `).join('')}
+          </div>
+        `}
+      `}
 
-      const backBtn = zone.querySelector('#back-to-people-2');
-      if (backBtn) backBtn.onclick = () => loadPeopleAndServices();
+      <div class="field" style="margin-top:16px;">
+        <label>Message (optionnel)</label>
+        <textarea id="message" name="message" rows="2" placeholder="Précision..."></textarea>
+      </div>
 
-      zone.querySelector('#confirm-slot-btn').onclick = async () => {
-        if (!selectedSlot) return;
+      <button class="btn btn-primary" id="confirm-slot-btn" ${selectedSlot ? '' : 'disabled'}>
+        ${selectedSlot ? `Réserver le ${new Date(selectedSlot).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })} à ${new Date(selectedSlot).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Choisissez une heure ci-dessus'}
+      </button>
+    `;
+
+    zone.querySelector('#people-minus').onclick = () => { if (peopleCount > 1) { peopleCount--; selectedSlot = null; loadAll(); } };
+    zone.querySelector('#people-plus').onclick = () => { if (peopleCount < 6) { peopleCount++; selectedSlot = null; loadAll(); } };
+
+    zone.querySelectorAll('.service-toggle-btn').forEach(btn => {
+      btn.onclick = () => {
+        const personIdx = parseInt(btn.dataset.person, 10);
+        if (expandedPersons.has(personIdx)) expandedPersons.delete(personIdx);
+        else expandedPersons.add(personIdx);
+        loadAll();
+      };
+    });
+
+    zone.querySelectorAll('.person-service-check').forEach(chk => {
+      chk.onchange = () => {
+        const personIdx = parseInt(chk.dataset.person, 10);
+        const serviceId = chk.dataset.service;
+        if (chk.checked) {
+          if (!personServiceIds[personIdx].includes(serviceId)) personServiceIds[personIdx].push(serviceId);
+        } else {
+          personServiceIds[personIdx] = personServiceIds[personIdx].filter(id => id !== serviceId);
+        }
+        selectedSlot = null;
+        loadAll();
+      };
+    });
+
+    const datePicker = zone.querySelector('#date-picker');
+    if (datePicker) {
+      datePicker.onchange = (e) => {
+        selectedDate = e.target.value;
+        selectedSlot = null;
+        loadAll();
+      };
+    }
+
+    zone.querySelectorAll('.slot-btn').forEach(btn => {
+      btn.onclick = () => {
+        selectedSlot = btn.dataset.slot;
+        loadAll();
+      };
+    });
+
+    const confirmBtn = zone.querySelector('#confirm-slot-btn');
+    if (selectedSlot) {
+      confirmBtn.onclick = async () => {
         const message = zone.querySelector('#message').value;
-        const confirmBtn = zone.querySelector('#confirm-slot-btn');
         confirmBtn.disabled = true;
         confirmBtn.textContent = 'Envoi en cours...';
         try {
@@ -1134,9 +1174,9 @@ function openBookingSheet() {
             body: JSON.stringify({
               message,
               slot_datetime: selectedSlot,
-              service_id: personServiceIds[0] || null,
+              service_id: (personServiceIds[0] && personServiceIds[0][0]) || null,
               people_count: peopleCount,
-              total_duration_minutes: duration || undefined,
+              total_duration_minutes: allServices.length > 0 ? totalDuration() : undefined,
               booking_details: allServices.length > 0 ? bookingDetailsText() : undefined,
             }),
           });
@@ -1149,15 +1189,13 @@ function openBookingSheet() {
         } catch (err) {
           backdrop.querySelector('#booking-error').innerHTML = `<div class="error-msg">${err.message}</div>`;
           confirmBtn.disabled = false;
-          confirmBtn.textContent = 'Réessayer';
+          confirmBtn.textContent = `Réserver le ${new Date(selectedSlot).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })} à ${new Date(selectedSlot).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
         }
       };
-    } catch (err) {
-      zone.innerHTML = `<div class="error-msg">${err.message}</div>`;
     }
   }
 
-  loadPeopleAndServices();
+  loadAll();
 }
 
 // Récupère le code de parrainage éventuel dans l'URL (?ref=...)
