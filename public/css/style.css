@@ -717,6 +717,11 @@ a { color: inherit; }
   max-width: 480px;
   max-height: 85vh;
   overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+.sheet * {
+  min-width: 0;
 }
 .sheet h3 {
   font-family: var(--font-display);
