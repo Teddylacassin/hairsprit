@@ -337,22 +337,18 @@ function renderClientsTableBody(main) {
   zone.innerHTML = `
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Client</th><th>Téléphone</th><th>Adresse</th><th>Points</th><th>Membre depuis</th><th>PIN</th><th>Notes</th><th>RDV</th></tr></thead>
+        <thead><tr><th>Client</th><th>Adresse</th><th>Points</th><th>PIN</th><th>Notes</th><th>RDV</th></tr></thead>
         <tbody>
-          ${state.clients.length === 0 ? `<tr><td colspan="8" style="text-align:center;color:var(--argent);">Aucun client trouvé.</td></tr>` : ''}
+          ${state.clients.length === 0 ? `<tr><td colspan="6" style="text-align:center;color:var(--argent);">Aucun client trouvé.</td></tr>` : ''}
           ${state.clients.map(c => `
-            <tr data-client-id="${c.id}" data-notes="${(c.admin_notes || '').replace(/"/g, '&quot;')}" data-telephone="${c.telephone}" data-address="${(c.address || '').replace(/"/g, '&quot;')}" data-prenom="${c.prenom.replace(/"/g, '&quot;')}" data-nom="${c.nom.replace(/"/g, '&quot;')}">
+            <tr data-client-id="${c.id}" data-notes="${(c.admin_notes || '').replace(/"/g, '&quot;')}" data-telephone="${c.telephone}" data-address="${(c.address || '').replace(/"/g, '&quot;')}" data-prenom="${c.prenom.replace(/"/g, '&quot;')}" data-nom="${c.nom.replace(/"/g, '&quot;')}" data-created="${c.created_at}">
               <td>${c.prenom} ${c.nom}</td>
-              <td>${c.telephone} <button class="edit-contact-btn" title="Modifier téléphone/adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">✏️</button></td>
-              <td style="color:var(--argent);font-size:12.5px;">
-                ${c.address ? `${c.address} <button class="copy-address-btn" data-address="${c.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button> <a href="https://www.waze.com/ul?q=${encodeURIComponent(c.address)}&navigate=yes" target="_blank" rel="noopener" title="Ouvrir dans Waze" style="text-decoration:none;padding:2px 4px;">🚗</a>` : '—'}
+              <td style="white-space:nowrap;">
+                ${c.address ? `<button class="copy-address-btn" data-address="${c.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button> <a href="https://www.waze.com/ul?q=${encodeURIComponent(c.address)}&navigate=yes" target="_blank" rel="noopener" title="Ouvrir dans Waze" style="text-decoration:none;padding:2px 4px;">🚗</a>` : '—'}
               </td>
               <td class="pts-cell">${c.points}</td>
-              <td>${formatDate(c.created_at)}</td>
               <td><button class="btn btn-outline reset-pin-btn" style="width:auto;padding:7px 10px;font-size:11.5px;">Réinitialiser</button></td>
-              <td style="color:var(--argent);font-size:12px;max-width:140px;">
-                ${c.admin_notes ? `<span>${c.admin_notes}</span> ` : ''}<button class="edit-notes-btn" title="Modifier les notes" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📝</button>
-              </td>
+              <td><button class="view-info-btn" title="Voir les infos (téléphone, adresse, notes...)" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;font-size:16px;">📝</button></td>
               <td><button class="btn btn-outline book-client-btn" style="width:auto;padding:7px 10px;font-size:11.5px;">📅 RDV</button></td>
             </tr>
           `).join('')}
@@ -370,37 +366,18 @@ function renderClientsTableBody(main) {
       });
     };
   });
-  zone.querySelectorAll('.edit-contact-btn').forEach(btn => {
-    btn.onclick = async () => {
+  zone.querySelectorAll('.view-info-btn').forEach(btn => {
+    btn.onclick = () => {
       const row = btn.closest('[data-client-id]');
-      const id = row.dataset.clientId;
-      const currentTel = row.dataset.telephone || '';
-      const currentAddr = row.dataset.address || '';
-      const newTel = prompt('Téléphone :', currentTel);
-      if (newTel === null) return;
-      const newAddr = prompt('Adresse :', currentAddr);
-      if (newAddr === null) return;
-      try {
-        await api(`/client/${id}`, { method: 'PUT', body: JSON.stringify({ telephone: newTel, address: newAddr }) });
-        const res = await api(`/clients${state.clientSearch ? '?q=' + encodeURIComponent(state.clientSearch) : ''}`);
-        state.clients = res.clients;
-        renderClientsTableBody(main);
-      } catch (err) { alert(err.message); }
-    };
-  });
-  zone.querySelectorAll('.edit-notes-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const row = btn.closest('[data-client-id]');
-      const id = row.dataset.clientId;
-      const current = row.dataset.notes || '';
-      const notes = prompt('Notes privées (digicode, parking, étage...) :', current);
-      if (notes === null) return;
-      try {
-        await api(`/client/${id}/notes`, { method: 'PUT', body: JSON.stringify({ notes }) });
-        const res = await api(`/clients${state.clientSearch ? '?q=' + encodeURIComponent(state.clientSearch) : ''}`);
-        state.clients = res.clients;
-        renderClientsTableBody(main);
-      } catch (err) { alert(err.message); }
+      openClientInfoPanel(main, {
+        id: row.dataset.clientId,
+        prenom: row.dataset.prenom,
+        nom: row.dataset.nom,
+        telephone: row.dataset.telephone,
+        address: row.dataset.address,
+        notes: row.dataset.notes,
+        created: row.dataset.created,
+      });
     };
   });
   zone.querySelectorAll('.reset-pin-btn').forEach(btn => {
@@ -420,6 +397,71 @@ function renderClientsTableBody(main) {
       }
     };
   });
+}
+
+function openClientInfoPanel(main, client) {
+  const zone = main.querySelector('#book-modal-zone');
+  zone.innerHTML = `
+    <div class="scanner-box" style="max-width:100%;margin-top:16px;">
+      <div class="section-title" style="margin-top:0;">${client.prenom} ${client.nom}</div>
+      <div style="display:flex;flex-direction:column;gap:10px;font-size:13.5px;">
+        <div><span style="color:var(--argent);">📞 Téléphone : </span>${client.telephone || '—'}</div>
+        <div><span style="color:var(--argent);">📍 Adresse : </span>${client.address || '—'}</div>
+        <div><span style="color:var(--argent);">🗓️ Membre depuis : </span>${formatDate(client.created)}</div>
+      </div>
+      <div class="field" style="margin-top:16px;">
+        <label>Notes privées (digicode, parking, étage...)</label>
+        <textarea id="client-notes-input" rows="3" placeholder="Ajouter une note...">${client.notes || ''}</textarea>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-outline" id="edit-contact-info-btn" style="flex:1;">✏️ Modifier téléphone/adresse</button>
+      </div>
+      <div id="client-notes-msg"></div>
+      <div style="display:flex;gap:10px;margin-top:10px;">
+        <button class="btn btn-primary" id="save-client-notes-btn" style="flex:1;">Enregistrer les notes</button>
+        <button class="btn btn-ghost" id="close-client-info-btn" style="flex:1;">Fermer</button>
+      </div>
+    </div>
+  `;
+  zone.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  zone.querySelector('#close-client-info-btn').onclick = () => { zone.innerHTML = ''; };
+
+  zone.querySelector('#save-client-notes-btn').onclick = async () => {
+    const btn = zone.querySelector('#save-client-notes-btn');
+    const notes = zone.querySelector('#client-notes-input').value;
+    btn.disabled = true;
+    btn.textContent = 'Enregistrement...';
+    try {
+      await api(`/client/${client.id}/notes`, { method: 'PUT', body: JSON.stringify({ notes }) });
+      const res = await api(`/clients${state.clientSearch ? '?q=' + encodeURIComponent(state.clientSearch) : ''}`);
+      state.clients = res.clients;
+      renderClientsTableBody(main);
+      zone.querySelector('#client-notes-msg').innerHTML = `<div class="success-msg" style="margin-top:10px;">✓ Notes enregistrées.</div>`;
+      btn.disabled = false;
+      btn.textContent = 'Enregistrer les notes';
+    } catch (err) {
+      zone.querySelector('#client-notes-msg').innerHTML = `<div class="error-msg" style="margin-top:10px;">${err.message}</div>`;
+      btn.disabled = false;
+      btn.textContent = 'Enregistrer les notes';
+    }
+  };
+
+  zone.querySelector('#edit-contact-info-btn').onclick = async () => {
+    const newTel = prompt('Téléphone :', client.telephone || '');
+    if (newTel === null) return;
+    const newAddr = prompt('Adresse :', client.address || '');
+    if (newAddr === null) return;
+    try {
+      await api(`/client/${client.id}`, { method: 'PUT', body: JSON.stringify({ telephone: newTel, address: newAddr }) });
+      const res = await api(`/clients${state.clientSearch ? '?q=' + encodeURIComponent(state.clientSearch) : ''}`);
+      state.clients = res.clients;
+      renderClientsTableBody(main);
+      client.telephone = newTel;
+      client.address = newAddr;
+      openClientInfoPanel(main, client);
+    } catch (err) { alert(err.message); }
+  };
 }
 
 function openBookClientPanel(main, client) {
