@@ -987,6 +987,7 @@ function openBookingSheet() {
   let selectedDate = null; // 'YYYY-MM-DD'
   let peopleCount = 1;
   let personServiceIds = []; // personServiceIds[i] = liste des id de prestations cochées pour la personne i
+  let expandedPersons = new Set([0]); // quelle(s) liste(s) de prestations sont ouvertes
   let allServices = [];
   let allSlots = []; // tous les créneaux dispos (ISO), sur 14 jours
 
@@ -1008,6 +1009,14 @@ function openBookingSheet() {
   function totalPrice() {
     return personServiceIds.reduce((sum, ids) => sum + personSum(ids, 'price'), 0);
   }
+  function personSummary(ids) {
+    if (ids.length === 0) return 'Choisir les prestations';
+    const names = ids.map(sid => {
+      const s = allServices.find(sv => sv.id === sid);
+      return s ? s.name : '';
+    }).filter(Boolean);
+    return names.join(' + ');
+  }
   function bookingDetailsText() {
     return personServiceIds.map((ids, i) => {
       const names = ids.map(sid => {
@@ -1028,7 +1037,7 @@ function openBookingSheet() {
       const servicesRes = await api('/services');
       allServices = servicesRes.services;
       if (personServiceIds.length !== peopleCount) {
-        personServiceIds = Array.from({ length: peopleCount }, (_, i) => personServiceIds[i] || (allServices[0] ? [allServices[0].id] : []));
+        personServiceIds = Array.from({ length: peopleCount }, (_, i) => personServiceIds[i] || []);
       }
       const duration = allServices.length > 0 ? totalDuration() : null;
       const slotsRes = await api(`/available-slots${duration ? `?duration=${duration}` : ''}`);
@@ -1055,17 +1064,25 @@ function openBookingSheet() {
       ${peopleCount >= 3 ? `<div style="color:var(--succes);font-size:12.5px;margin-bottom:14px;">🎉 Tarif groupe appliqué</div>` : ''}
 
       ${allServices.length > 0 ? personServiceIds.map((ids, i) => `
-        <div class="section-title" style="margin-top:16px;">Prestations — Personne ${i + 1} <span style="text-transform:none;letter-spacing:0;color:var(--argent);">(coche tout ce qu'il faut)</span></div>
-        <div style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto;">
-          ${allServices.map(s => `
-            <label style="display:flex;flex-direction:column;gap:4px;background:var(--panel);border:1px solid var(--ligne);border-radius:8px;padding:10px 12px;font-size:13px;cursor:pointer;flex-shrink:0;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <input type="checkbox" class="person-service-check" data-person="${i}" data-service="${s.id}" ${ids.includes(s.id) ? 'checked' : ''} style="flex-shrink:0;" />
-                <span>${s.name}</span>
-              </div>
-              <div style="font-family:var(--font-mono);color:var(--argent-clair);font-size:11.5px;padding-left:26px;">${personPrice(s).toFixed(2)}€${peopleCount >= 3 && s.group_price != null ? ' (groupe)' : ''} · ${s.duration_minutes}min</div>
-            </label>
-          `).join('')}
+        <div class="field">
+          <label>Prestations — Personne ${i + 1}</label>
+          <button type="button" class="btn btn-outline service-toggle-btn" data-person="${i}" style="text-align:left;display:flex;justify-content:space-between;align-items:center;">
+            <span>${personSummary(ids)}</span>
+            <span>${expandedPersons.has(i) ? '▲' : '▼'}</span>
+          </button>
+          ${expandedPersons.has(i) ? `
+            <div style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;margin-top:8px;">
+              ${allServices.map(s => `
+                <label style="display:flex;flex-direction:column;gap:4px;background:var(--panel);border:1px solid var(--ligne);border-radius:8px;padding:10px 12px;font-size:13px;cursor:pointer;flex-shrink:0;">
+                  <div style="display:flex;align-items:center;gap:8px;">
+                    <input type="checkbox" class="person-service-check" data-person="${i}" data-service="${s.id}" ${ids.includes(s.id) ? 'checked' : ''} style="flex-shrink:0;" />
+                    <span>${s.name}</span>
+                  </div>
+                  <div style="font-family:var(--font-mono);color:var(--argent-clair);font-size:11.5px;padding-left:26px;">${personPrice(s).toFixed(2)}€${peopleCount >= 3 && s.group_price != null ? ' (groupe)' : ''} · ${s.duration_minutes}min</div>
+                </label>
+              `).join('')}
+            </div>
+          ` : ''}
         </div>
       `).join('') : ''}
 
@@ -1106,17 +1123,23 @@ function openBookingSheet() {
     zone.querySelector('#people-minus').onclick = () => { if (peopleCount > 1) { peopleCount--; selectedSlot = null; loadAll(); } };
     zone.querySelector('#people-plus').onclick = () => { if (peopleCount < 6) { peopleCount++; selectedSlot = null; loadAll(); } };
 
+    zone.querySelectorAll('.service-toggle-btn').forEach(btn => {
+      btn.onclick = () => {
+        const personIdx = parseInt(btn.dataset.person, 10);
+        if (expandedPersons.has(personIdx)) expandedPersons.delete(personIdx);
+        else expandedPersons.add(personIdx);
+        loadAll();
+      };
+    });
+
     zone.querySelectorAll('.person-service-check').forEach(chk => {
       chk.onchange = () => {
         const personIdx = parseInt(chk.dataset.person, 10);
         const serviceId = chk.dataset.service;
         if (chk.checked) {
           if (!personServiceIds[personIdx].includes(serviceId)) personServiceIds[personIdx].push(serviceId);
-        } else if (personServiceIds[personIdx].length > 1) {
-          personServiceIds[personIdx] = personServiceIds[personIdx].filter(id => id !== serviceId);
         } else {
-          chk.checked = true; // au moins une prestation obligatoire par personne
-          return;
+          personServiceIds[personIdx] = personServiceIds[personIdx].filter(id => id !== serviceId);
         }
         selectedSlot = null;
         loadAll();
