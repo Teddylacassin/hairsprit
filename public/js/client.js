@@ -984,58 +984,66 @@ function openBookingSheet() {
   backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
 
   let selectedSlot = null;
+  let selectedDate = null; // 'YYYY-MM-DD'
   let peopleCount = 1;
-  let personServiceId = [];
+  let personServiceIds = []; // personServiceIds[i] = liste des id de prestations cochées pour la personne i
   let allServices = [];
+  let allSlots = []; // tous les créneaux dispos (ISO), sur 14 jours
 
   function personPrice(s) {
     if (!s) return 0;
     if (peopleCount >= 3 && s.group_price != null && s.group_price !== '') return parseFloat(s.group_price);
     return parseFloat(s.price);
   }
-  function totalDuration() {
-    return personServiceId.reduce((sum, sid) => {
+  function personSum(ids, field) {
+    return ids.reduce((sum, sid) => {
       const s = allServices.find(sv => sv.id === sid);
-      return sum + (s ? s.duration_minutes : 30);
+      if (!s) return sum;
+      return sum + (field === 'duration' ? s.duration_minutes : personPrice(s));
     }, 0);
+  }
+  function totalDuration() {
+    return personServiceIds.reduce((sum, ids) => sum + personSum(ids, 'duration'), 0);
   }
   function totalPrice() {
-    return personServiceId.reduce((sum, sid) => {
-      const s = allServices.find(sv => sv.id === sid);
-      return sum + personPrice(s);
-    }, 0);
+    return personServiceIds.reduce((sum, ids) => sum + personSum(ids, 'price'), 0);
   }
   function bookingDetailsText() {
-    return personServiceId.map((sid, i) => {
-      const s = allServices.find(sv => sv.id === sid);
-      return `Personne ${i + 1} : ${s ? s.name : 'Prestation'} (${personPrice(s).toFixed(2)}€)`;
+    return personServiceIds.map((ids, i) => {
+      const names = ids.map(sid => {
+        const s = allServices.find(sv => sv.id === sid);
+        return s ? s.name : 'Prestation';
+      }).join(' + ');
+      return `Personne ${i + 1} : ${names} (${personSum(ids, 'price').toFixed(2)}€)`;
     }).join(' · ');
+  }
+  function dateKey(iso) {
+    return new Date(iso).toLocaleDateString('en-CA'); // YYYY-MM-DD en heure locale
   }
 
   async function loadAll() {
     const zone = backdrop.querySelector('#slots-zone');
     zone.innerHTML = `<div class="loading-spin"></div>`;
-    let slotsRes;
     try {
       const servicesRes = await api('/services');
       allServices = servicesRes.services;
-      if (personServiceId.length !== peopleCount) {
-        personServiceId = Array.from({ length: peopleCount }, (_, i) => personServiceId[i] || (allServices[0] ? allServices[0].id : null));
+      if (personServiceIds.length !== peopleCount) {
+        personServiceIds = Array.from({ length: peopleCount }, (_, i) => personServiceIds[i] || (allServices[0] ? [allServices[0].id] : []));
       }
       const duration = allServices.length > 0 ? totalDuration() : null;
-      slotsRes = await api(`/available-slots${duration ? `?duration=${duration}` : ''}`);
+      const slotsRes = await api(`/available-slots${duration ? `?duration=${duration}` : ''}`);
+      allSlots = slotsRes.slots;
     } catch (e) {
       zone.innerHTML = `<div class="error-msg">${e.message}</div>`;
       return;
     }
 
-    const byDay = {};
-    slotsRes.slots.forEach(iso => {
-      const d = new Date(iso);
-      const dayKey = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-      if (!byDay[dayKey]) byDay[dayKey] = [];
-      byDay[dayKey].push(iso);
-    });
+    // Jours disponibles (pour limiter le calendrier)
+    const availableDates = [...new Set(allSlots.map(dateKey))].sort();
+    if (!selectedDate || !availableDates.includes(selectedDate)) {
+      selectedDate = availableDates[0] || null;
+    }
+    const slotsForDate = selectedDate ? allSlots.filter(iso => dateKey(iso) === selectedDate) : [];
 
     zone.innerHTML = `
       <div class="section-title" style="margin-top:0;">Combien de personnes ?</div>
@@ -1046,13 +1054,17 @@ function openBookingSheet() {
       </div>
       ${peopleCount >= 3 ? `<div style="color:var(--succes);font-size:12.5px;margin-bottom:14px;">🎉 Tarif groupe appliqué</div>` : ''}
 
-      ${allServices.length > 0 ? personServiceId.map((sid, i) => `
-        <div class="section-title" style="margin-top:16px;">Prestation — Personne ${i + 1}</div>
-        <div style="display:flex;flex-direction:column;gap:8px;">
+      ${allServices.length > 0 ? personServiceIds.map((ids, i) => `
+        <div class="section-title" style="margin-top:16px;">Prestations — Personne ${i + 1} <span style="text-transform:none;letter-spacing:0;color:var(--argent);">(coche tout ce qu'il faut)</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto;">
           ${allServices.map(s => `
-            <button type="button" class="btn ${s.id === sid ? 'btn-primary' : 'btn-outline'} pick-service-btn" data-person="${i}" data-service="${s.id}" style="text-align:left;padding:12px 14px;">
-              ${s.name} — ${personPrice(s).toFixed(2)}€
-            </button>
+            <label style="display:flex;flex-direction:column;gap:4px;background:var(--panel);border:1px solid var(--ligne);border-radius:8px;padding:10px 12px;font-size:13px;cursor:pointer;flex-shrink:0;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <input type="checkbox" class="person-service-check" data-person="${i}" data-service="${s.id}" ${ids.includes(s.id) ? 'checked' : ''} style="flex-shrink:0;" />
+                <span>${s.name}</span>
+              </div>
+              <div style="font-family:var(--font-mono);color:var(--argent-clair);font-size:11.5px;padding-left:26px;">${personPrice(s).toFixed(2)}€${peopleCount >= 3 && s.group_price != null ? ' (groupe)' : ''} · ${s.duration_minutes}min</div>
+            </label>
           `).join('')}
         </div>
       `).join('') : ''}
@@ -1064,20 +1076,22 @@ function openBookingSheet() {
         </div>
       ` : ''}
 
-      <div class="section-title">Choisir un créneau</div>
-      ${slotsRes.slots.length === 0 ? `<div class="empty-state">Aucun créneau disponible. Essayez avec moins de personnes.</div>` : ''}
-      <div style="max-height:220px;overflow-y:auto;">
-        ${Object.entries(byDay).map(([day, slots]) => `
-          <div style="color:var(--argent);font-size:12px;margin:10px 0 6px;">${day}</div>
+      <div class="section-title">Choisir un jour</div>
+      ${availableDates.length === 0 ? `<div class="empty-state">Aucun créneau disponible pour le moment. Essayez avec moins de personnes.</div>` : `
+        <div class="field" style="max-width:220px;">
+          <input type="date" id="date-picker" value="${selectedDate}" min="${availableDates[0]}" max="${availableDates[availableDates.length - 1]}" />
+        </div>
+        <div class="section-title">Choisir une heure</div>
+        ${slotsForDate.length === 0 ? `<div class="empty-state">Aucun créneau ce jour-là. Choisissez un autre jour.</div>` : `
           <div style="display:flex;flex-wrap:wrap;gap:8px;">
-            ${slots.map(iso => `
+            ${slotsForDate.map(iso => `
               <button type="button" class="btn ${iso === selectedSlot ? 'btn-primary' : 'btn-outline'} slot-btn" data-slot="${iso}" style="width:auto;padding:10px 14px;font-size:13px;">
                 ${new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
               </button>
             `).join('')}
           </div>
-        `).join('')}
-      </div>
+        `}
+      `}
 
       <div class="field" style="margin-top:16px;">
         <label>Message (optionnel)</label>
@@ -1085,20 +1099,38 @@ function openBookingSheet() {
       </div>
 
       <button class="btn btn-primary" id="confirm-slot-btn" ${selectedSlot ? '' : 'disabled'}>
-        ${selectedSlot ? `Réserver le ${new Date(selectedSlot).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })} à ${new Date(selectedSlot).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Choisissez un créneau ci-dessus'}
+        ${selectedSlot ? `Réserver le ${new Date(selectedSlot).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })} à ${new Date(selectedSlot).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Choisissez une heure ci-dessus'}
       </button>
     `;
 
     zone.querySelector('#people-minus').onclick = () => { if (peopleCount > 1) { peopleCount--; selectedSlot = null; loadAll(); } };
     zone.querySelector('#people-plus').onclick = () => { if (peopleCount < 6) { peopleCount++; selectedSlot = null; loadAll(); } };
 
-    zone.querySelectorAll('.pick-service-btn').forEach(btn => {
-      btn.onclick = () => {
-        personServiceId[parseInt(btn.dataset.person, 10)] = btn.dataset.service;
+    zone.querySelectorAll('.person-service-check').forEach(chk => {
+      chk.onchange = () => {
+        const personIdx = parseInt(chk.dataset.person, 10);
+        const serviceId = chk.dataset.service;
+        if (chk.checked) {
+          if (!personServiceIds[personIdx].includes(serviceId)) personServiceIds[personIdx].push(serviceId);
+        } else if (personServiceIds[personIdx].length > 1) {
+          personServiceIds[personIdx] = personServiceIds[personIdx].filter(id => id !== serviceId);
+        } else {
+          chk.checked = true; // au moins une prestation obligatoire par personne
+          return;
+        }
         selectedSlot = null;
         loadAll();
       };
     });
+
+    const datePicker = zone.querySelector('#date-picker');
+    if (datePicker) {
+      datePicker.onchange = (e) => {
+        selectedDate = e.target.value;
+        selectedSlot = null;
+        loadAll();
+      };
+    }
 
     zone.querySelectorAll('.slot-btn').forEach(btn => {
       btn.onclick = () => {
@@ -1119,7 +1151,7 @@ function openBookingSheet() {
             body: JSON.stringify({
               message,
               slot_datetime: selectedSlot,
-              service_id: personServiceId[0] || null,
+              service_id: (personServiceIds[0] && personServiceIds[0][0]) || null,
               people_count: peopleCount,
               total_duration_minutes: allServices.length > 0 ? totalDuration() : undefined,
               booking_details: allServices.length > 0 ? bookingDetailsText() : undefined,
