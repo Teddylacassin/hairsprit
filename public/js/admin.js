@@ -335,37 +335,20 @@ async function renderClientsTab(main) {
 function renderClientsTableBody(main) {
   const zone = document.getElementById('clients-table-zone');
   zone.innerHTML = `
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Client</th><th>Adresse</th><th>Points</th><th>PIN</th><th>Notes</th><th>RDV</th></tr></thead>
-        <tbody>
-          ${state.clients.length === 0 ? `<tr><td colspan="6" style="text-align:center;color:var(--argent);">Aucun client trouvé.</td></tr>` : ''}
-          ${state.clients.map(c => `
-            <tr data-client-id="${c.id}" data-notes="${(c.admin_notes || '').replace(/"/g, '&quot;')}" data-telephone="${c.telephone}" data-address="${(c.address || '').replace(/"/g, '&quot;')}" data-prenom="${c.prenom.replace(/"/g, '&quot;')}" data-nom="${c.nom.replace(/"/g, '&quot;')}" data-created="${c.created_at}">
-              <td>${c.prenom} ${c.nom}</td>
-              <td style="white-space:nowrap;">
-                ${c.address ? `<button class="copy-address-btn" data-address="${c.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button> <a href="https://www.waze.com/ul?q=${encodeURIComponent(c.address)}&navigate=yes" target="_blank" rel="noopener" title="Ouvrir dans Waze" style="text-decoration:none;padding:2px 4px;">🚗</a>` : '—'}
-              </td>
-              <td class="pts-cell">${c.points}</td>
-              <td><button class="btn btn-outline reset-pin-btn" style="width:auto;padding:7px 10px;font-size:11.5px;">Réinitialiser</button></td>
-              <td><button class="view-info-btn" title="Voir les infos (téléphone, adresse, notes...)" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;font-size:16px;">📝</button></td>
-              <td><button class="btn btn-outline book-client-btn" style="width:auto;padding:7px 10px;font-size:11.5px;">📅 RDV</button></td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
+    ${state.clients.length === 0 ? `<div class="empty-state">Aucun client trouvé.</div>` : ''}
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      ${state.clients.map(c => `
+        <div class="reward-admin-row" style="justify-content:space-between;flex-wrap:wrap;gap:8px;" data-client-id="${c.id}" data-notes="${(c.admin_notes || '').replace(/"/g, '&quot;')}" data-telephone="${c.telephone}" data-address="${(c.address || '').replace(/"/g, '&quot;')}" data-prenom="${c.prenom.replace(/"/g, '&quot;')}" data-nom="${c.nom.replace(/"/g, '&quot;')}" data-created="${c.created_at}">
+          <div style="font-weight:600;font-size:14px;">${c.prenom} ${c.nom}</div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            ${c.address ? `<a href="https://www.waze.com/ul?q=${encodeURIComponent(c.address)}&navigate=yes" target="_blank" rel="noopener" title="Ouvrir dans Waze" style="text-decoration:none;font-size:15px;">🚗</a>` : ''}
+            <span class="pts-cell" style="font-family:var(--font-mono);font-size:13.5px;">${c.points}pts</span>
+            <button class="view-info-btn" title="Toutes les infos (adresse, téléphone, notes, PIN, RDV...)" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:4px;font-size:15px;">📝</button>
+          </div>
+        </div>
+      `).join('')}
     </div>
   `;
-  zone.querySelectorAll('.book-client-btn').forEach(btn => {
-    btn.onclick = () => {
-      const row = btn.closest('[data-client-id]');
-      openBookClientPanel(main, {
-        id: row.dataset.clientId,
-        prenom: row.dataset.prenom,
-        nom: row.dataset.nom,
-      });
-    };
-  });
   zone.querySelectorAll('.view-info-btn').forEach(btn => {
     btn.onclick = () => {
       const row = btn.closest('[data-client-id]');
@@ -380,23 +363,6 @@ function renderClientsTableBody(main) {
       });
     };
   });
-  zone.querySelectorAll('.reset-pin-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const row = btn.closest('[data-client-id]');
-      const id = row.dataset.clientId;
-      if (!confirm('Réinitialiser le code PIN de ce client ? Il devra en recréer un à sa prochaine connexion.')) return;
-      btn.disabled = true;
-      btn.textContent = '...';
-      try {
-        await api(`/client/${id}/reset-pin`, { method: 'PUT' });
-        btn.textContent = '✓ Fait';
-      } catch (err) {
-        alert(err.message);
-        btn.disabled = false;
-        btn.textContent = 'Réinitialiser';
-      }
-    };
-  });
 }
 
 function openClientInfoPanel(main, client) {
@@ -405,22 +371,25 @@ function openClientInfoPanel(main, client) {
     <div class="scanner-box" style="max-width:100%;margin-top:16px;">
       <div class="section-title" style="margin-top:0;">${client.prenom} ${client.nom}</div>
       <div style="display:flex;flex-direction:column;gap:10px;font-size:13.5px;">
+        <div>
+          <span style="color:var(--argent);">📍 Adresse : </span>${client.address || 'Aucune adresse'}
+          ${client.address ? `<button class="copy-address-btn" data-address="${client.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button>` : ''}
+        </div>
         <div><span style="color:var(--argent);">📞 Téléphone : </span>${client.telephone || '—'}</div>
-        <div><span style="color:var(--argent);">📍 Adresse : </span>${client.address || '—'}</div>
         <div><span style="color:var(--argent);">🗓️ Membre depuis : </span>${formatDate(client.created)}</div>
       </div>
       <div class="field" style="margin-top:16px;">
         <label>Notes privées (digicode, parking, étage...)</label>
         <textarea id="client-notes-input" rows="3" placeholder="Ajouter une note...">${client.notes || ''}</textarea>
       </div>
-      <div style="display:flex;gap:10px;">
-        <button class="btn btn-outline" id="edit-contact-info-btn" style="flex:1;">✏️ Modifier téléphone/adresse</button>
-      </div>
       <div id="client-notes-msg"></div>
+      <button class="btn btn-primary" id="save-client-notes-btn" style="margin-top:8px;">Enregistrer les notes</button>
       <div style="display:flex;gap:10px;margin-top:10px;">
-        <button class="btn btn-primary" id="save-client-notes-btn" style="flex:1;">Enregistrer les notes</button>
-        <button class="btn btn-ghost" id="close-client-info-btn" style="flex:1;">Fermer</button>
+        <button class="btn btn-outline" id="edit-contact-info-btn" style="flex:1;">✏️ Téléphone/adresse</button>
+        <button class="btn btn-outline" id="reset-pin-panel-btn" style="flex:1;">🔑 Réinitialiser PIN</button>
       </div>
+      <button class="btn btn-outline" id="book-client-panel-btn" style="margin-top:10px;">📅 Prendre RDV</button>
+      <button class="btn btn-ghost" id="close-client-info-btn" style="margin-top:10px;">Fermer</button>
     </div>
   `;
   zone.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -461,6 +430,26 @@ function openClientInfoPanel(main, client) {
       client.address = newAddr;
       openClientInfoPanel(main, client);
     } catch (err) { alert(err.message); }
+  };
+
+  zone.querySelector('#reset-pin-panel-btn').onclick = async () => {
+    if (!confirm('Réinitialiser le code PIN de ce client ? Il devra en recréer un à sa prochaine connexion.')) return;
+    const btn = zone.querySelector('#reset-pin-panel-btn');
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      await api(`/client/${client.id}/reset-pin`, { method: 'PUT' });
+      btn.textContent = '✓ PIN réinitialisé';
+      setTimeout(() => { btn.textContent = '🔑 Réinitialiser PIN'; btn.disabled = false; }, 1500);
+    } catch (err) {
+      alert(err.message);
+      btn.disabled = false;
+      btn.textContent = '🔑 Réinitialiser PIN';
+    }
+  };
+
+  zone.querySelector('#book-client-panel-btn').onclick = () => {
+    openBookClientPanel(main, { id: client.id, prenom: client.prenom, nom: client.nom });
   };
 }
 
