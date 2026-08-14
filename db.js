@@ -115,6 +115,15 @@ async function initDb() {
   await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS total_duration_minutes INTEGER;`);
   await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS booking_details TEXT;`);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS manual_revenue (
+      id TEXT PRIMARY KEY,
+      entry_date DATE NOT NULL,
+      amount NUMERIC NOT NULL,
+      note TEXT,
+      created_at TIMESTAMP DEFAULT now()
+    );
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS schedule_settings (
       id TEXT PRIMARY KEY,
       open_days TEXT NOT NULL,
