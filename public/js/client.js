@@ -1066,19 +1066,16 @@ function openBookingSheet() {
       ${allServices.length > 0 ? personServiceIds.map((ids, i) => `
         <div class="field">
           <label>Prestations — Personne ${i + 1}</label>
-          <button type="button" class="btn btn-outline service-toggle-btn" data-person="${i}" style="text-align:left;display:flex;justify-content:space-between;align-items:center;gap:8px;overflow:hidden;">
-            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${personSummary(ids)}</span>
-            <span style="flex-shrink:0;">${expandedPersons.has(i) ? '▲' : '▼'}</span>
+          <button type="button" class="btn btn-outline service-toggle-btn" data-person="${i}" style="text-align:left;">
+            ${personSummary(ids)} ${expandedPersons.has(i) ? '▲' : '▼'}
           </button>
           ${expandedPersons.has(i) ? `
-            <div style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;margin-top:8px;">
+            <div style="max-height:200px;overflow-y:auto;margin-top:8px;">
               ${allServices.map(s => `
-                <label style="display:flex;flex-direction:column;gap:4px;background:var(--panel);border:1px solid var(--ligne);border-radius:8px;padding:10px 12px;font-size:13px;cursor:pointer;flex-shrink:0;">
-                  <div style="display:flex;align-items:center;gap:8px;min-width:0;">
-                    <input type="checkbox" class="person-service-check" data-person="${i}" data-service="${s.id}" ${ids.includes(s.id) ? 'checked' : ''} style="flex-shrink:0;" />
-                    <span style="min-width:0;word-break:break-word;">${s.name}</span>
-                  </div>
-                  <div style="font-family:var(--font-mono);color:var(--argent-clair);font-size:11.5px;padding-left:26px;">${personPrice(s).toFixed(2)}€${peopleCount >= 3 && s.group_price != null ? ' (groupe)' : ''} · ${s.duration_minutes}min</div>
+                <label style="display:block;background:var(--panel);border:1px solid var(--ligne);border-radius:8px;padding:10px 12px;font-size:13px;cursor:pointer;margin-bottom:6px;">
+                  <input type="checkbox" class="person-service-check" data-person="${i}" data-service="${s.id}" ${ids.includes(s.id) ? 'checked' : ''} style="vertical-align:middle;margin-right:8px;" />
+                  <span style="vertical-align:middle;">${s.name}</span>
+                  <div style="font-family:var(--font-mono);color:var(--argent-clair);font-size:11.5px;margin-top:4px;padding-left:26px;">${personPrice(s).toFixed(2)}€${peopleCount >= 3 && s.group_price != null ? ' (groupe)' : ''} · ${s.duration_minutes}min</div>
                 </label>
               `).join('')}
             </div>
