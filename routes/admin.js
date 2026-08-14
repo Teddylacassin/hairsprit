@@ -400,7 +400,7 @@ router.get('/bookings', requireAdminAuth, async (req, res) => {
 
 // POST /api/admin/bookings -> manually create a confirmed appointment for a client
 router.post('/bookings', requireAdminAuth, async (req, res) => {
-  const { client_id, slot_datetime, service_id, message } = req.body;
+  const { client_id, slot_datetime, service_id, message, booking_details } = req.body;
   if (!client_id || !slot_datetime) {
     return res.status(400).json({ error: 'Client et créneau requis.' });
   }
@@ -414,8 +414,8 @@ router.post('/bookings', requireAdminAuth, async (req, res) => {
   if (existing) return res.status(409).json({ error: 'Ce créneau est déjà pris.' });
 
   const id = uuidv4();
-  await db.run('INSERT INTO bookings (id, client_id, message, slot_datetime, service_id, status) VALUES (?,?,?,?,?,?)',
-    [id, client_id, (message || '').trim().slice(0, 500), slot_datetime, service_id || null, 'confirme']);
+  await db.run('INSERT INTO bookings (id, client_id, message, slot_datetime, service_id, booking_details, status) VALUES (?,?,?,?,?,?,?)',
+    [id, client_id, (message || '').trim().slice(0, 500), slot_datetime, service_id || null, (booking_details || '').trim().slice(0, 500) || null, 'confirme']);
   res.json({ ok: true, id });
 });
 
@@ -456,6 +456,76 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
       AND date_trunc('month', b.slot_datetime) = date_trunc('month', now())
   `);
 
+  const lastMonthRevenueRow = await db.get(`
+    SELECT COALESCE(SUM(s.price),0) as total
+    FROM bookings b JOIN services s ON s.id = b.service_id
+    WHERE b.status = 'confirme'
+      AND date_trunc('month', b.slot_datetime) = date_trunc('month', now() - interval '1 month')
+  `);
+
+  const avgBasketRow = await db.get(`
+    SELECT COALESCE(AVG(s.price),0) as avg_price
+    FROM bookings b JOIN services s ON s.id = b.service_id
+    WHERE b.status = 'confirme'
+  `);
+
+  const monthManualRow = await db.get(`
+    SELECT COALESCE(SUM(amount),0) as total, COUNT(*) as c
+    FROM manual_revenue
+    WHERE date_trunc('month', entry_date) = date_trunc('month', now())
+  `);
+
+  const lastMonthManualRow = await db.get(`
+    SELECT COALESCE(SUM(amount),0) as total
+    FROM manual_revenue
+    WHERE date_trunc('month', entry_date) = date_trunc('month', now() - interval '1 month')
+  `);
+
+  const returningRow = await db.get(`
+    SELECT
+      COUNT(*) FILTER (WHERE cnt > 1) as returning,
+      COUNT(*) as total
+    FROM (SELECT client_id, COUNT(*) as cnt FROM visits GROUP BY client_id) t
+  `);
+
+  const busiestRow = await db.get(`
+    SELECT extract(dow from slot_datetime) as dow, extract(hour from slot_datetime) as hr, COUNT(*) as c
+    FROM bookings
+    WHERE status = 'confirme'
+    GROUP BY dow, hr
+    ORDER BY c DESC
+    LIMIT 1
+  `);
+
+  const recentManual = await db.all(`
+    SELECT id, entry_date, amount, note FROM manual_revenue ORDER BY entry_date DESC, created_at DESC LIMIT 10
+  `);
+
+  const monthRevenue = parseFloat(monthRevenueRow.total) + parseFloat(monthManualRow.total);
+  const lastMonthRevenue = parseFloat(lastMonthRevenueRow.total) + parseFloat(lastMonthManualRow.total);
+  let revenueGrowthPct = null;
+  if (lastMonthRevenue > 0) {
+    revenueGrowthPct = ((monthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100;
+  } else if (monthRevenue > 0) {
+    revenueGrowthPct = 100;
+  }
+
+  const monthRevenueCount = parseInt(monthRevenueRow.c, 10) + parseInt(monthManualRow.c, 10);
+  const avgBasket = monthRevenueCount > 0
+    ? (parseFloat(avgBasketRow.avg_price) * parseInt(monthRevenueRow.c, 10) + parseFloat(monthManualRow.total)) / monthRevenueCount
+    : parseFloat(avgBasketRow.avg_price);
+
+  const totalWithVisits = parseInt(returningRow.total, 10);
+  const returningCount = parseInt(returningRow.returning, 10);
+  const returningRatePct = totalWithVisits > 0 ? (returningCount / totalWithVisits) * 100 : 0;
+
+  const DOW_NAMES_FR = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+  const busiest = busiestRow ? {
+    day: DOW_NAMES_FR[parseInt(busiestRow.dow, 10)],
+    hour: parseInt(busiestRow.hr, 10),
+    count: parseInt(busiestRow.c, 10),
+  } : null;
+
   res.json({
     totalClients: parseInt(totalClientsRow.c, 10),
     totalVisits: parseInt(totalVisitsRow.c, 10),
@@ -463,11 +533,37 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
     totalPointsActive: parseInt(totalPointsActiveRow.s, 10),
     pendingBookings: parseInt(pendingBookingsRow.c, 10),
     newClients30: parseInt(newClients30Row.c, 10),
-    monthRevenue: parseFloat(monthRevenueRow.total),
-    monthRevenueCount: parseInt(monthRevenueRow.c, 10),
+    monthRevenue,
+    monthRevenueCount,
+    revenueGrowthPct,
+    avgBasket,
+    returningRatePct,
+    busiest,
     last30: last30.map(r => ({ jour: r.jour, visites: parseInt(r.visites, 10) })),
     topClients,
+    recentManual: recentManual.map(r => ({ id: r.id, date: r.entry_date, amount: parseFloat(r.amount), note: r.note })),
   });
+});
+
+// CA manuel (clients hors app / hors tarifs)
+router.post('/manual-revenue', requireAdminAuth, async (req, res) => {
+  const { date, amount, note } = req.body;
+  if (!date || amount === undefined || amount === null || amount === '') {
+    return res.status(400).json({ error: 'Date et montant requis.' });
+  }
+  const parsedAmount = parseFloat(amount);
+  if (isNaN(parsedAmount) || parsedAmount < 0) {
+    return res.status(400).json({ error: 'Montant invalide.' });
+  }
+  const id = uuidv4();
+  await db.run('INSERT INTO manual_revenue (id, entry_date, amount, note) VALUES (?,?,?,?)',
+    [id, date, parsedAmount, (note || '').trim().slice(0, 200) || null]);
+  res.json({ ok: true, id });
+});
+
+router.delete('/manual-revenue/:id', requireAdminAuth, async (req, res) => {
+  await db.run('DELETE FROM manual_revenue WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
 });
 
 module.exports = router;
