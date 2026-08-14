@@ -1071,11 +1071,49 @@ async function renderStatsTab(main) {
   const s = state.stats;
   const maxVisits = Math.max(1, ...s.last30.map(d => d.visites));
   const monthLabel = new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  const growthText = s.revenueGrowthPct == null ? '' : `${s.revenueGrowthPct >= 0 ? '+' : ''}${s.revenueGrowthPct.toFixed(0)}% vs mois dernier`;
+  const growthColor = s.revenueGrowthPct == null ? 'var(--argent)' : (s.revenueGrowthPct >= 0 ? 'var(--succes)' : 'var(--danger)');
   main.innerHTML = `
     <div class="section-title" style="margin-top:0;">Chiffre d'affaires — ${monthLabel}</div>
     <div class="scanner-box" style="max-width:100%;">
-      <div style="font-family:var(--font-mono);font-size:38px;font-weight:600;color:var(--succes);">${s.monthRevenue.toFixed(2)}€</div>
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
+        <div style="font-family:var(--font-mono);font-size:38px;font-weight:600;color:var(--succes);">${s.monthRevenue.toFixed(2)}€</div>
+        ${growthText ? `<div style="font-family:var(--font-mono);font-size:13px;color:${growthColor};font-weight:600;">${growthText}</div>` : ''}
+      </div>
       <div style="color:var(--argent);font-size:12.5px;margin-top:4px;">${s.monthRevenueCount} prestation${s.monthRevenueCount > 1 ? 's' : ''} confirmée${s.monthRevenueCount > 1 ? 's' : ''} avec tarif ce mois-ci</div>
+    </div>
+
+    <div class="section-title">Ajouter du CA manuel (clients hors app)</div>
+    <div class="scanner-box" style="max-width:100%;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="field" style="margin-bottom:0;flex:1;min-width:140px;">
+          <label>Date</label>
+          <input type="date" id="manual-revenue-date" value="${new Date().toISOString().slice(0, 10)}" />
+        </div>
+        <div class="field" style="margin-bottom:0;flex:1;min-width:100px;">
+          <label>Montant (€)</label>
+          <input type="number" id="manual-revenue-amount" min="0" step="0.5" placeholder="0.00" />
+        </div>
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Note (optionnel)</label>
+        <input type="text" id="manual-revenue-note" placeholder="Ex : 4 coupes en espèces" />
+      </div>
+      <button class="btn btn-outline" id="add-manual-revenue-btn" style="margin-top:6px;">Ajouter au CA du jour</button>
+      <div id="manual-revenue-msg"></div>
+      ${s.recentManual && s.recentManual.length > 0 ? `
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
+          ${s.recentManual.map(m => `
+            <div class="history-item" data-manual-id="${m.id}">
+              <div>
+                <div>${parseFloat(m.amount).toFixed(2)}€</div>
+                <div class="date">${new Date(m.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}${m.note ? ` · ${m.note}` : ''}</div>
+              </div>
+              <button class="btn btn-danger delete-manual-btn" style="width:auto;padding:8px 12px;font-size:12px;">Supprimer</button>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
     </div>
 
     <div class="section-title">Vue d'ensemble</div>
@@ -1086,7 +1124,17 @@ async function renderStatsTab(main) {
       <div class="stat-card"><div class="stat-value">${s.totalPointsActive}</div><div class="stat-label">Points en circulation</div></div>
       <div class="stat-card"><div class="stat-value">${s.newClients30}</div><div class="stat-label">Nouveaux clients (30j)</div></div>
       <div class="stat-card"><div class="stat-value">${s.pendingBookings}</div><div class="stat-label">Réservations en attente</div></div>
+      <div class="stat-card"><div class="stat-value">${s.avgBasket.toFixed(2)}€</div><div class="stat-label">Panier moyen</div></div>
+      <div class="stat-card"><div class="stat-value">${s.returningRatePct.toFixed(0)}%</div><div class="stat-label">Clients qui reviennent</div></div>
     </div>
+
+    ${s.busiest ? `
+      <div class="section-title">Créneau le plus demandé</div>
+      <div class="scanner-box" style="max-width:100%;">
+        <div style="font-size:16px;font-weight:600;text-transform:capitalize;">${s.busiest.day} vers ${String(s.busiest.hour).padStart(2, '0')}h</div>
+        <div style="color:var(--argent);font-size:12.5px;margin-top:4px;">${s.busiest.count} rendez-vous confirmé${s.busiest.count > 1 ? 's' : ''} sur ce créneau</div>
+      </div>
+    ` : ''}
 
     <div class="section-title">Visites — 30 derniers jours</div>
     <div class="table-wrap" style="padding:20px;display:flex;align-items:flex-end;gap:3px;height:140px;overflow-x:auto;">
@@ -1107,6 +1155,45 @@ async function renderStatsTab(main) {
       </table>
     </div>
   `;
+
+  main.querySelector('#add-manual-revenue-btn').onclick = async () => {
+    const btn = main.querySelector('#add-manual-revenue-btn');
+    const date = main.querySelector('#manual-revenue-date').value;
+    const amount = main.querySelector('#manual-revenue-amount').value;
+    const note = main.querySelector('#manual-revenue-note').value;
+    if (!date || !amount) {
+      main.querySelector('#manual-revenue-msg').innerHTML = `<div class="error-msg">Date et montant requis.</div>`;
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Ajout...';
+    try {
+      await api('/manual-revenue', { method: 'POST', body: JSON.stringify({ date, amount, note }) });
+      renderStatsTab(main);
+    } catch (err) {
+      main.querySelector('#manual-revenue-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
+      btn.disabled = false;
+      btn.textContent = 'Ajouter au CA du jour';
+    }
+  };
+
+  main.querySelectorAll('.delete-manual-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('[data-manual-id]');
+      const id = row.dataset.manualId;
+      if (!confirm('Supprimer cette entrée de CA manuel ?')) return;
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        await api(`/manual-revenue/${id}`, { method: 'DELETE' });
+        renderStatsTab(main);
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+        btn.textContent = 'Supprimer';
+      }
+    };
+  });
 }
 
 // Copie l'adresse dans le presse-papier, où qu'apparaisse le bouton dans l'app
