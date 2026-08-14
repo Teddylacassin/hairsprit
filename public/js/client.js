@@ -1083,10 +1083,23 @@ function openBookingSheet() {
         </div>
       `).join('') : ''}
 
-      ${allServices.length > 0 ? `
-        <div style="display:flex;justify-content:space-between;font-size:13.5px;color:var(--argent);margin:16px 0;">
-          <span>Total estimé</span>
-          <span style="font-family:var(--font-mono);color:var(--argent-clair);">${totalDuration()} min · ${totalPrice().toFixed(2)}€</span>
+      ${allServices.length > 0 && personServiceIds.some(ids => ids.length > 0) ? `
+        <div class="section-title">Récapitulatif</div>
+        <div class="scanner-box" style="max-width:100%;padding:14px;">
+          ${personServiceIds.map((ids, i) => ids.length === 0 ? '' : `
+            <div style="margin-bottom:10px;">
+              <div style="font-size:12.5px;color:var(--argent-clair);font-weight:600;margin-bottom:4px;">Personne ${i + 1}</div>
+              ${ids.map(sid => {
+                const s = allServices.find(sv => sv.id === sid);
+                if (!s) return '';
+                return `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span>${s.name}</span><span style="font-family:var(--font-mono);color:var(--argent-clair);">${personPrice(s).toFixed(2)}€</span></div>`;
+              }).join('')}
+            </div>
+          `).join('')}
+          <div style="display:flex;justify-content:space-between;border-top:1px solid var(--ligne);padding-top:10px;margin-top:6px;font-size:14px;font-weight:600;">
+            <span>Total (${totalDuration()} min)</span>
+            <span style="font-family:var(--font-mono);color:var(--succes);">${totalPrice().toFixed(2)}€</span>
+          </div>
         </div>
       ` : ''}
 
