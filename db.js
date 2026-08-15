@@ -123,6 +123,7 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT now()
     );
   `);
+  await pool.query(`ALTER TABLE manual_revenue ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT 'espece';`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schedule_settings (
       id TEXT PRIMARY KEY,
@@ -165,6 +166,25 @@ async function initDb() {
       id TEXT PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_style_profile (
+      client_id TEXT PRIMARY KEY REFERENCES clients(id),
+      last_cut TEXT,
+      usual_length TEXT,
+      beard TEXT,
+      products TEXT,
+      updated_at TIMESTAMP NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_style_photos (
+      id TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES clients(id),
+      photo_data TEXT NOT NULL,
+      caption TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT now()
     );
   `);
 
