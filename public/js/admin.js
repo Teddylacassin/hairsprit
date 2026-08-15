@@ -388,6 +388,7 @@ function openClientInfoPanel(main, client) {
         <button class="btn btn-outline" id="edit-contact-info-btn" style="flex:1;">✏️ Téléphone/adresse</button>
         <button class="btn btn-outline" id="reset-pin-panel-btn" style="flex:1;">🔑 Réinitialiser PIN</button>
       </div>
+      <button class="btn btn-outline" id="style-profile-btn" style="margin-top:10px;">✂️ Mon barber habituel</button>
       <button class="btn btn-outline" id="book-client-panel-btn" style="margin-top:10px;">📅 Prendre RDV</button>
       <button class="btn btn-ghost" id="close-client-info-btn" style="margin-top:10px;">Fermer</button>
     </div>
@@ -451,6 +452,135 @@ function openClientInfoPanel(main, client) {
   zone.querySelector('#book-client-panel-btn').onclick = () => {
     openBookClientPanel(main, { id: client.id, prenom: client.prenom, nom: client.nom });
   };
+
+  zone.querySelector('#style-profile-btn').onclick = () => {
+    openStyleProfilePanel(main, client);
+  };
+}
+
+async function openStyleProfilePanel(main, client) {
+  const zone = main.querySelector('#book-modal-zone');
+  zone.innerHTML = `<div class="loading-spin"></div>`;
+  zone.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  let profile, photos;
+  try {
+    const res = await api(`/client/${client.id}/style-profile`);
+    profile = res.profile;
+    photos = res.photos;
+  } catch (err) {
+    zone.innerHTML = `<div class="error-msg">${err.message}</div>`;
+    return;
+  }
+
+  function render() {
+    zone.innerHTML = `
+      <div class="scanner-box" style="max-width:100%;margin-top:16px;">
+        <div class="section-title" style="margin-top:0;">✂️ Mon barber habituel — ${client.prenom} ${client.nom}</div>
+        <div class="field">
+          <label>Dernière coupe</label>
+          <input type="text" id="sp-last-cut" value="${(profile.last_cut || '').replace(/"/g, '&quot;')}" placeholder="Ex : Dégradé bas, contours nets" />
+        </div>
+        <div class="field">
+          <label>Longueur habituelle</label>
+          <input type="text" id="sp-length" value="${(profile.usual_length || '').replace(/"/g, '&quot;')}" placeholder="Ex : 2 sur les côtés, 5 dessus" />
+        </div>
+        <div class="field">
+          <label>Barbe</label>
+          <input type="text" id="sp-beard" value="${(profile.beard || '').replace(/"/g, '&quot;')}" placeholder="Ex : Taillée courte, contours rasoir" />
+        </div>
+        <div class="field">
+          <label>Produits utilisés</label>
+          <input type="text" id="sp-products" value="${(profile.products || '').replace(/"/g, '&quot;')}" placeholder="Ex : Cire mate, huile à barbe" />
+        </div>
+        <div id="sp-msg"></div>
+        <button class="btn btn-primary" id="sp-save-btn">Enregistrer le profil</button>
+
+        <div class="section-title">Photos des anciennes coupes</div>
+        <input type="file" id="sp-photo-input" accept="image/*" capture="environment" style="margin-bottom:10px;" />
+        <div id="sp-photo-msg"></div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;">
+          ${photos.map(p => `
+            <div style="position:relative;">
+              <img src="${p.photo_data}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;border:1px solid var(--ligne);" />
+              <button class="sp-delete-photo-btn" data-photo-id="${p.id}" title="Supprimer" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.6);border:none;color:var(--blanc);border-radius:6px;width:24px;height:24px;font-size:13px;cursor:pointer;">✕</button>
+            </div>
+          `).join('')}
+          ${photos.length === 0 ? `<div class="empty-state" style="grid-column:1/-1;">Aucune photo pour le moment.</div>` : ''}
+        </div>
+
+        <button class="btn btn-ghost" id="sp-close-btn" style="margin-top:16px;">Fermer</button>
+      </div>
+    `;
+
+    zone.querySelector('#sp-close-btn').onclick = () => { zone.innerHTML = ''; };
+
+    zone.querySelector('#sp-save-btn').onclick = async () => {
+      const btn = zone.querySelector('#sp-save-btn');
+      btn.disabled = true;
+      btn.textContent = 'Enregistrement...';
+      try {
+        await api(`/client/${client.id}/style-profile`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            last_cut: zone.querySelector('#sp-last-cut').value,
+            usual_length: zone.querySelector('#sp-length').value,
+            beard: zone.querySelector('#sp-beard').value,
+            products: zone.querySelector('#sp-products').value,
+          }),
+        });
+        zone.querySelector('#sp-msg').innerHTML = `<div class="success-msg">✓ Profil enregistré.</div>`;
+        btn.disabled = false;
+        btn.textContent = 'Enregistrer le profil';
+      } catch (err) {
+        zone.querySelector('#sp-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
+        btn.disabled = false;
+        btn.textContent = 'Enregistrer le profil';
+      }
+    };
+
+    zone.querySelector('#sp-photo-input').onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const msg = zone.querySelector('#sp-photo-msg');
+      if (file.size > 5 * 1024 * 1024) {
+        msg.innerHTML = `<div class="error-msg">Photo trop lourde (max 5 Mo).</div>`;
+        return;
+      }
+      msg.innerHTML = `<div class="loading-spin"></div>`;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          await api(`/client/${client.id}/style-photos`, {
+            method: 'POST',
+            body: JSON.stringify({ photo_data: reader.result }),
+          });
+          const res = await api(`/client/${client.id}/style-profile`);
+          profile = res.profile;
+          photos = res.photos;
+          render();
+        } catch (err) {
+          msg.innerHTML = `<div class="error-msg">${err.message}</div>`;
+        }
+      };
+      reader.readAsDataURL(file);
+    };
+
+    zone.querySelectorAll('.sp-delete-photo-btn').forEach(btn => {
+      btn.onclick = async () => {
+        if (!confirm('Supprimer cette photo ?')) return;
+        try {
+          await api(`/style-photos/${btn.dataset.photoId}`, { method: 'DELETE' });
+          const res = await api(`/client/${client.id}/style-profile`);
+          profile = res.profile;
+          photos = res.photos;
+          render();
+        } catch (err) { alert(err.message); }
+      };
+    });
+  }
+
+  render();
 }
 
 function openBookClientPanel(main, client) {
@@ -1096,17 +1226,34 @@ async function renderStatsTab(main) {
         </div>
       </div>
       <div class="field" style="margin-top:10px;">
+        <label>Moyen de paiement</label>
+        <select id="manual-revenue-method" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:12px 14px;border-radius:10px;font-size:14px;">
+          <option value="espece">Espèce</option>
+          <option value="virement">Virement</option>
+        </select>
+      </div>
+      <div class="field" style="margin-top:10px;">
         <label>Note (optionnel)</label>
-        <input type="text" id="manual-revenue-note" placeholder="Ex : 4 coupes en espèces" />
+        <input type="text" id="manual-revenue-note" placeholder="Ex : 4 coupes" />
       </div>
       <button class="btn btn-outline" id="add-manual-revenue-btn" style="margin-top:6px;">Ajouter au CA du jour</button>
       <div id="manual-revenue-msg"></div>
+      ${s.paymentBreakdown && s.paymentBreakdown.length > 0 ? `
+        <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
+          ${s.paymentBreakdown.map(p => `
+            <div style="flex:1;min-width:120px;background:var(--panel-2);border:1px solid var(--ligne);border-radius:10px;padding:10px 12px;">
+              <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;color:var(--argent);">${p.method === 'virement' ? 'Virement' : 'Espèce'} (ce mois)</div>
+              <div style="font-family:var(--font-mono);font-size:16px;font-weight:600;margin-top:2px;">${p.total.toFixed(2)}€</div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
       ${s.recentManual && s.recentManual.length > 0 ? `
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
           ${s.recentManual.map(m => `
             <div class="history-item" data-manual-id="${m.id}">
               <div>
-                <div>${parseFloat(m.amount).toFixed(2)}€</div>
+                <div>${parseFloat(m.amount).toFixed(2)}€ <span class="pill" style="margin-left:6px;">${m.paymentMethod === 'virement' ? 'Virement' : 'Espèce'}</span></div>
                 <div class="date">${new Date(m.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}${m.note ? ` · ${m.note}` : ''}</div>
               </div>
               <button class="btn btn-danger delete-manual-btn" style="width:auto;padding:8px 12px;font-size:12px;">Supprimer</button>
@@ -1161,6 +1308,7 @@ async function renderStatsTab(main) {
     const date = main.querySelector('#manual-revenue-date').value;
     const amount = main.querySelector('#manual-revenue-amount').value;
     const note = main.querySelector('#manual-revenue-note').value;
+    const payment_method = main.querySelector('#manual-revenue-method').value;
     if (!date || !amount) {
       main.querySelector('#manual-revenue-msg').innerHTML = `<div class="error-msg">Date et montant requis.</div>`;
       return;
@@ -1168,7 +1316,7 @@ async function renderStatsTab(main) {
     btn.disabled = true;
     btn.textContent = 'Ajout...';
     try {
-      await api('/manual-revenue', { method: 'POST', body: JSON.stringify({ date, amount, note }) });
+      await api('/manual-revenue', { method: 'POST', body: JSON.stringify({ date, amount, note, payment_method }) });
       renderStatsTab(main);
     } catch (err) {
       main.querySelector('#manual-revenue-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
