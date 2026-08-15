@@ -759,12 +759,16 @@ function renderDashboardTabContent() {
       <a href="https://g.page/r/CRa_yp8Pnc2EEBM/review" target="_blank" rel="noopener" class="btn btn-outline" style="text-decoration:none;text-align:center;display:block;margin-bottom:10px;">
         ⭐ Laisser un avis Google
       </a>
+      <button class="btn btn-outline" id="open-style-profile-btn" style="text-align:center;display:block;margin-bottom:10px;">
+        ✂️ Mes préférences coiffure
+      </button>
       <button class="btn btn-outline" id="open-referral-btn" style="text-align:center;display:block;">
         🎁 Parrainer un ami
       </button>
     `;
     document.getElementById('loyalty-card').onclick = toggleCardFlip;
     document.getElementById('open-referral-btn').onclick = openReferralSheet;
+    document.getElementById('open-style-profile-btn').onclick = openStyleProfileSheet;
     return;
   }
 
@@ -894,6 +898,85 @@ function formatDate(iso) {
 }
 
 /* ---------------- REFERRAL SHEET ---------------- */
+/* ---------------- STYLE PROFILE SHEET ---------------- */
+async function openStyleProfileSheet() {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'sheet-backdrop';
+  backdrop.innerHTML = `
+    <div class="sheet">
+      <h3>✂️ Mes préférences coiffure</h3>
+      <div class="sub">Dis-nous ce que tu aimes, ton barbier le retrouvera à chaque visite.</div>
+      <div id="style-profile-content"><div class="loading-spin"></div></div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+
+  const content = backdrop.querySelector('#style-profile-content');
+  try {
+    const res = await api('/style-profile');
+    const p = res.profile;
+    const photos = res.photos;
+    content.innerHTML = `
+      <div class="field">
+        <label>Ma coupe habituelle</label>
+        <input type="text" id="sp-last-cut" value="${(p.last_cut || '').replace(/"/g, '&quot;')}" placeholder="Ex : Dégradé bas, contours nets" />
+      </div>
+      <div class="field">
+        <label>Longueur habituelle</label>
+        <input type="text" id="sp-length" value="${(p.usual_length || '').replace(/"/g, '&quot;')}" placeholder="Ex : 2 sur les côtés, 5 dessus" />
+      </div>
+      <div class="field">
+        <label>Barbe</label>
+        <input type="text" id="sp-beard" value="${(p.beard || '').replace(/"/g, '&quot;')}" placeholder="Ex : Taillée courte, contours rasoir" />
+      </div>
+      <div class="field">
+        <label>Produits que j'aime</label>
+        <input type="text" id="sp-products" value="${(p.products || '').replace(/"/g, '&quot;')}" placeholder="Ex : Cire mate, huile à barbe" />
+      </div>
+      <div id="sp-msg"></div>
+      <button class="btn btn-primary" id="sp-save-btn">Enregistrer</button>
+
+      ${photos.length > 0 ? `
+        <div class="section-title">Mes anciennes coupes</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+          ${photos.map(ph => `<img src="${ph.photo_data}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;border:1px solid var(--ligne);" />`).join('')}
+        </div>
+      ` : ''}
+
+      <button class="btn btn-ghost" id="sp-close-btn" style="margin-top:14px;">Fermer</button>
+    `;
+
+    content.querySelector('#sp-close-btn').onclick = () => backdrop.remove();
+
+    content.querySelector('#sp-save-btn').onclick = async () => {
+      const btn = content.querySelector('#sp-save-btn');
+      btn.disabled = true;
+      btn.textContent = 'Enregistrement...';
+      try {
+        await api('/style-profile', {
+          method: 'PUT',
+          body: JSON.stringify({
+            last_cut: content.querySelector('#sp-last-cut').value,
+            usual_length: content.querySelector('#sp-length').value,
+            beard: content.querySelector('#sp-beard').value,
+            products: content.querySelector('#sp-products').value,
+          }),
+        });
+        content.querySelector('#sp-msg').innerHTML = `<div class="success-msg">✓ Préférences enregistrées !</div>`;
+        btn.disabled = false;
+        btn.textContent = 'Enregistrer';
+      } catch (err) {
+        content.querySelector('#sp-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
+        btn.disabled = false;
+        btn.textContent = 'Enregistrer';
+      }
+    };
+  } catch (err) {
+    content.innerHTML = `<div class="error-msg">${err.message}</div>`;
+  }
+}
+
 async function openReferralSheet() {
   const backdrop = document.createElement('div');
   backdrop.className = 'sheet-backdrop';
