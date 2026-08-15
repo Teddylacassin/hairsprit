@@ -481,6 +481,13 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
     WHERE date_trunc('month', entry_date) = date_trunc('month', now() - interval '1 month')
   `);
 
+  const paymentBreakdownRows = await db.all(`
+    SELECT payment_method, COALESCE(SUM(amount),0) as total
+    FROM manual_revenue
+    WHERE date_trunc('month', entry_date) = date_trunc('month', now())
+    GROUP BY payment_method
+  `);
+
   const returningRow = await db.get(`
     SELECT
       COUNT(*) FILTER (WHERE cnt > 1) as returning,
@@ -498,7 +505,7 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
   `);
 
   const recentManual = await db.all(`
-    SELECT id, entry_date, amount, note FROM manual_revenue ORDER BY entry_date DESC, created_at DESC LIMIT 10
+    SELECT id, entry_date, amount, note, payment_method FROM manual_revenue ORDER BY entry_date DESC, created_at DESC LIMIT 10
   `);
 
   const monthRevenue = parseFloat(monthRevenueRow.total) + parseFloat(monthManualRow.total);
@@ -541,13 +548,14 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
     busiest,
     last30: last30.map(r => ({ jour: r.jour, visites: parseInt(r.visites, 10) })),
     topClients,
-    recentManual: recentManual.map(r => ({ id: r.id, date: r.entry_date, amount: parseFloat(r.amount), note: r.note })),
+    recentManual: recentManual.map(r => ({ id: r.id, date: r.entry_date, amount: parseFloat(r.amount), note: r.note, paymentMethod: r.payment_method })),
+    paymentBreakdown: paymentBreakdownRows.map(r => ({ method: r.payment_method, total: parseFloat(r.total) })),
   });
 });
 
 // CA manuel (clients hors app / hors tarifs)
 router.post('/manual-revenue', requireAdminAuth, async (req, res) => {
-  const { date, amount, note } = req.body;
+  const { date, amount, note, payment_method } = req.body;
   if (!date || amount === undefined || amount === null || amount === '') {
     return res.status(400).json({ error: 'Date et montant requis.' });
   }
@@ -555,14 +563,62 @@ router.post('/manual-revenue', requireAdminAuth, async (req, res) => {
   if (isNaN(parsedAmount) || parsedAmount < 0) {
     return res.status(400).json({ error: 'Montant invalide.' });
   }
+  const method = payment_method === 'virement' ? 'virement' : 'espece';
   const id = uuidv4();
-  await db.run('INSERT INTO manual_revenue (id, entry_date, amount, note) VALUES (?,?,?,?)',
-    [id, date, parsedAmount, (note || '').trim().slice(0, 200) || null]);
+  await db.run('INSERT INTO manual_revenue (id, entry_date, amount, note, payment_method) VALUES (?,?,?,?,?)',
+    [id, date, parsedAmount, (note || '').trim().slice(0, 200) || null, method]);
   res.json({ ok: true, id });
 });
 
 router.delete('/manual-revenue/:id', requireAdminAuth, async (req, res) => {
   await db.run('DELETE FROM manual_revenue WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// PROFIL COIFFURE ("Mon barber habituel")
+router.get('/client/:id/style-profile', requireAdminAuth, async (req, res) => {
+  const targetClient = await db.get('SELECT id FROM clients WHERE id = ?', [req.params.id]);
+  if (!targetClient) return res.status(404).json({ error: 'Client introuvable.' });
+  const profile = await db.get('SELECT * FROM client_style_profile WHERE client_id = ?', [req.params.id]);
+  const photos = await db.all('SELECT id, photo_data, caption, created_at FROM client_style_photos WHERE client_id = ? ORDER BY created_at DESC', [req.params.id]);
+  res.json({
+    profile: profile || { last_cut: '', usual_length: '', beard: '', products: '' },
+    photos,
+  });
+});
+
+router.put('/client/:id/style-profile', requireAdminAuth, async (req, res) => {
+  const targetClient = await db.get('SELECT id FROM clients WHERE id = ?', [req.params.id]);
+  if (!targetClient) return res.status(404).json({ error: 'Client introuvable.' });
+  const { last_cut, usual_length, beard, products } = req.body;
+  const existing = await db.get('SELECT client_id FROM client_style_profile WHERE client_id = ?', [req.params.id]);
+  if (existing) {
+    await db.run(
+      'UPDATE client_style_profile SET last_cut=?, usual_length=?, beard=?, products=?, updated_at=now() WHERE client_id=?',
+      [(last_cut || '').trim().slice(0, 500), (usual_length || '').trim().slice(0, 200), (beard || '').trim().slice(0, 200), (products || '').trim().slice(0, 500), req.params.id]
+    );
+  } else {
+    await db.run(
+      'INSERT INTO client_style_profile (client_id, last_cut, usual_length, beard, products) VALUES (?,?,?,?,?)',
+      [req.params.id, (last_cut || '').trim().slice(0, 500), (usual_length || '').trim().slice(0, 200), (beard || '').trim().slice(0, 200), (products || '').trim().slice(0, 500)]
+    );
+  }
+  res.json({ ok: true });
+});
+
+router.post('/client/:id/style-photos', requireAdminAuth, async (req, res) => {
+  const targetClient = await db.get('SELECT id FROM clients WHERE id = ?', [req.params.id]);
+  if (!targetClient) return res.status(404).json({ error: 'Client introuvable.' });
+  const { photo_data, caption } = req.body;
+  if (!photo_data) return res.status(400).json({ error: 'Photo requise.' });
+  const id = uuidv4();
+  await db.run('INSERT INTO client_style_photos (id, client_id, photo_data, caption) VALUES (?,?,?,?)',
+    [id, req.params.id, photo_data, (caption || '').trim().slice(0, 200) || null]);
+  res.json({ ok: true, id });
+});
+
+router.delete('/style-photos/:id', requireAdminAuth, async (req, res) => {
+  await db.run('DELETE FROM client_style_photos WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
 });
 
