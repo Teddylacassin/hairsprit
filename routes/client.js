@@ -391,4 +391,32 @@ router.post('/booking', requireClientAuth, async (req, res) => {
   res.json({ ok: true, bookingId: id });
 });
 
+// GET /api/client/style-profile -> mes préférences coiffure + les photos ajoutées par le barbier
+router.get('/style-profile', requireClientAuth, async (req, res) => {
+  const profile = await db.get('SELECT * FROM client_style_profile WHERE client_id = ?', [req.clientId]);
+  const photos = await db.all('SELECT id, photo_data, caption, created_at FROM client_style_photos WHERE client_id = ? ORDER BY created_at DESC', [req.clientId]);
+  res.json({
+    profile: profile || { last_cut: '', usual_length: '', beard: '', products: '' },
+    photos,
+  });
+});
+
+// PUT /api/client/style-profile -> le client renseigne lui-même ses préférences (pas les photos)
+router.put('/style-profile', requireClientAuth, async (req, res) => {
+  const { last_cut, usual_length, beard, products } = req.body;
+  const existing = await db.get('SELECT client_id FROM client_style_profile WHERE client_id = ?', [req.clientId]);
+  if (existing) {
+    await db.run(
+      'UPDATE client_style_profile SET last_cut=?, usual_length=?, beard=?, products=?, updated_at=now() WHERE client_id=?',
+      [(last_cut || '').trim().slice(0, 500), (usual_length || '').trim().slice(0, 200), (beard || '').trim().slice(0, 200), (products || '').trim().slice(0, 500), req.clientId]
+    );
+  } else {
+    await db.run(
+      'INSERT INTO client_style_profile (client_id, last_cut, usual_length, beard, products) VALUES (?,?,?,?,?)',
+      [req.clientId, (last_cut || '').trim().slice(0, 500), (usual_length || '').trim().slice(0, 200), (beard || '').trim().slice(0, 200), (products || '').trim().slice(0, 500)]
+    );
+  }
+  res.json({ ok: true });
+});
+
 module.exports = router;
