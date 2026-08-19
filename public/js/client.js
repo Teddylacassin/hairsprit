@@ -759,6 +759,9 @@ function renderDashboardTabContent() {
       <a href="https://g.page/r/CRa_yp8Pnc2EEBM/review" target="_blank" rel="noopener" class="btn btn-outline" style="text-decoration:none;text-align:center;display:block;margin-bottom:10px;">
         ⭐ Laisser un avis Google
       </a>
+      <a href="https://teddylacassin.github.io/hairsprit-boutique/" target="_blank" rel="noopener" class="btn btn-outline" style="text-decoration:none;text-align:center;display:block;margin-bottom:10px;">
+        🛍️ Ma boutique
+      </a>
       <button class="btn btn-outline" id="open-style-profile-btn" style="text-align:center;display:block;margin-bottom:10px;">
         ✂️ Mes préférences coiffure
       </button>
