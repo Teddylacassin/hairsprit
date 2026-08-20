@@ -4,6 +4,7 @@ const cors = require('cors');
 const path = require('path');
 
 const { initDb } = require('./db');
+const { startReminderScheduler } = require('./reminders');
 
 const clientRoutes = require('./routes/client');
 const adminRoutes = require('./routes/admin');
@@ -31,6 +32,7 @@ initDb()
     app.listen(PORT, () => {
       console.log(`✂️  Hairsprit Fidélité en ligne sur http://localhost:${PORT}`);
     });
+    startReminderScheduler();
   })
   .catch((err) => {
     console.error('Erreur lors de l\'initialisation de la base de données :', err);
