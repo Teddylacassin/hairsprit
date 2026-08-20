@@ -80,12 +80,15 @@ async function initDb() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS orders (
       id TEXT PRIMARY KEY,
-      client_id TEXT NOT NULL REFERENCES clients(id),
+      client_id TEXT REFERENCES clients(id),
       status TEXT NOT NULL DEFAULT 'en_attente',
       note TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT now()
     );
   `);
+  await pool.query(`ALTER TABLE orders ALTER COLUMN client_id DROP NOT NULL;`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS guest_name TEXT;`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS guest_phone TEXT;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS order_items (
       id TEXT PRIMARY KEY,
@@ -184,6 +187,32 @@ async function initDb() {
       client_id TEXT NOT NULL REFERENCES clients(id),
       photo_data TEXT NOT NULL,
       caption TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS urgent_availability (
+      id TEXT PRIMARY KEY,
+      active BOOLEAN NOT NULL DEFAULT false,
+      expires_at TIMESTAMP,
+      surcharge NUMERIC NOT NULL DEFAULT 0
+    );
+  `);
+  await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS urgent_surcharge NUMERIC NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS is_urgent INTEGER NOT NULL DEFAULT 0;`);
+
+  const urgentCount = await get('SELECT COUNT(*) as c FROM urgent_availability');
+  if (parseInt(urgentCount.c, 10) === 0) {
+    await run('INSERT INTO urgent_availability (id, active, surcharge) VALUES (?,?,?)', ['default', false, 0]);
+  }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS expenses (
+      id TEXT PRIMARY KEY,
+      expense_date DATE NOT NULL,
+      amount NUMERIC NOT NULL,
+      category TEXT NOT NULL DEFAULT 'autre',
+      note TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT now()
     );
   `);
