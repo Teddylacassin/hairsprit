@@ -61,4 +61,64 @@ async function sendBookingAlertEmail({ client, message, slotDatetime, serviceNam
   }
 }
 
-module.exports = { sendBookingAlertEmail };
+// Envoie un récap quotidien (chaque matin) des RDV confirmés du lendemain,
+// pour que Teddy puisse appeler/textoter les clients en amont pour éviter les oublis.
+async function sendDailyReminderEmail({ bookings, dateLabel }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const toEmail = process.env.NOTIFY_EMAIL;
+  if (!apiKey || !toEmail) {
+    console.log('[Hairsprit] Rappel quotidien non envoyé : RESEND_API_KEY ou NOTIFY_EMAIL manquant.');
+    return;
+  }
+
+  if (bookings.length === 0) {
+    console.log('[Hairsprit] Rappel quotidien : aucun RDV demain, email non envoyé.');
+    return;
+  }
+
+  const rows = bookings.map(b => `
+    <div style="border-bottom:1px solid #eee;padding:10px 0;">
+      <p style="margin:0;"><strong>${new Date(b.slot_datetime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Brussels' })}</strong> — ${b.prenom} ${b.nom}</p>
+      <p style="margin:2px 0;color:#555;">📞 ${b.telephone}</p>
+      ${b.booking_details ? `<p style="margin:2px 0;color:#555;">${b.booking_details}</p>` : (b.service_name ? `<p style="margin:2px 0;color:#555;">${b.service_name}</p>` : '')}
+      ${b.address ? `<p style="margin:2px 0;color:#555;">📍 ${b.address}</p>` : ''}
+    </div>
+  `).join('');
+
+  const html = `
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
+      <h2 style="margin-bottom:4px;">Rappel — RDV de demain (${dateLabel})</h2>
+      <p style="color:#555;margin-top:0;">Hairsprit · ${bookings.length} rendez-vous prévu${bookings.length > 1 ? 's' : ''}</p>
+      ${rows}
+      <p style="margin-top:20px;">
+        <a href="https://hairsprit.onrender.com/admin" style="background:#111;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">
+          Ouvrir l'espace admin
+        </a>
+      </p>
+    </div>
+  `;
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: 'Hairsprit <onboarding@resend.dev>',
+        to: [toEmail],
+        subject: `Rappel : ${bookings.length} RDV demain (${dateLabel})`,
+        html,
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('[Hairsprit] Erreur envoi email rappel Resend:', res.status, errText);
+    }
+  } catch (e) {
+    console.error('[Hairsprit] Erreur envoi email rappel:', e.message);
+  }
+}
+
+module.exports = { sendBookingAlertEmail, sendDailyReminderEmail };
