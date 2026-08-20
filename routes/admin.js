@@ -450,21 +450,21 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
   `);
 
   const monthRevenueRow = await db.get(`
-    SELECT COALESCE(SUM(s.price),0) as total, COUNT(*) as c
+    SELECT COALESCE(SUM(s.price + COALESCE(b.urgent_surcharge,0)),0) as total, COUNT(*) as c
     FROM bookings b JOIN services s ON s.id = b.service_id
     WHERE b.status = 'confirme'
       AND date_trunc('month', b.slot_datetime) = date_trunc('month', now())
   `);
 
   const lastMonthRevenueRow = await db.get(`
-    SELECT COALESCE(SUM(s.price),0) as total
+    SELECT COALESCE(SUM(s.price + COALESCE(b.urgent_surcharge,0)),0) as total
     FROM bookings b JOIN services s ON s.id = b.service_id
     WHERE b.status = 'confirme'
       AND date_trunc('month', b.slot_datetime) = date_trunc('month', now() - interval '1 month')
   `);
 
   const avgBasketRow = await db.get(`
-    SELECT COALESCE(AVG(s.price),0) as avg_price
+    SELECT COALESCE(AVG(s.price + COALESCE(b.urgent_surcharge,0)),0) as avg_price
     FROM bookings b JOIN services s ON s.id = b.service_id
     WHERE b.status = 'confirme'
   `);
@@ -488,6 +488,20 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
     GROUP BY payment_method
   `);
 
+  const paymentBreakdownWeekRows = await db.all(`
+    SELECT payment_method, COALESCE(SUM(amount),0) as total
+    FROM manual_revenue
+    WHERE date_trunc('week', entry_date) = date_trunc('week', now())
+    GROUP BY payment_method
+  `);
+
+  const paymentBreakdownYearRows = await db.all(`
+    SELECT payment_method, COALESCE(SUM(amount),0) as total
+    FROM manual_revenue
+    WHERE date_trunc('year', entry_date) = date_trunc('year', now())
+    GROUP BY payment_method
+  `);
+
   const returningRow = await db.get(`
     SELECT
       COUNT(*) FILTER (WHERE cnt > 1) as returning,
@@ -506,6 +520,61 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
 
   const recentManual = await db.all(`
     SELECT id, entry_date, amount, note, payment_method FROM manual_revenue ORDER BY entry_date DESC, created_at DESC LIMIT 10
+  `);
+
+  const weekRevenueRow = await db.get(`
+    WITH combined AS (
+      SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0)) AS amount
+      FROM bookings b JOIN services s ON s.id = b.service_id
+      WHERE b.status = 'confirme'
+      UNION ALL
+      SELECT entry_date AS rev_date, amount FROM manual_revenue
+    )
+    SELECT COALESCE(SUM(amount),0) as total FROM combined
+    WHERE date_trunc('week', rev_date) = date_trunc('week', now())
+  `);
+
+  const yearRevenueRow = await db.get(`
+    WITH combined AS (
+      SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0)) AS amount
+      FROM bookings b JOIN services s ON s.id = b.service_id
+      WHERE b.status = 'confirme'
+      UNION ALL
+      SELECT entry_date AS rev_date, amount FROM manual_revenue
+    )
+    SELECT COALESCE(SUM(amount),0) as total FROM combined
+    WHERE date_trunc('year', rev_date) = date_trunc('year', now())
+  `);
+
+  const monthlyBreakdownRows = await db.all(`
+    WITH combined AS (
+      SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0)) AS amount
+      FROM bookings b JOIN services s ON s.id = b.service_id
+      WHERE b.status = 'confirme'
+      UNION ALL
+      SELECT entry_date AS rev_date, amount FROM manual_revenue
+    )
+    SELECT to_char(date_trunc('month', rev_date), 'YYYY-MM') as mois, COALESCE(SUM(amount),0) as total
+    FROM combined
+    WHERE rev_date >= date_trunc('month', now()) - interval '11 months'
+    GROUP BY mois
+    ORDER BY mois ASC
+  `);
+
+  const weekExpensesRow = await db.get(`
+    SELECT COALESCE(SUM(amount),0) as total FROM expenses
+    WHERE date_trunc('week', expense_date) = date_trunc('week', now())
+  `);
+  const monthExpensesRow = await db.get(`
+    SELECT COALESCE(SUM(amount),0) as total FROM expenses
+    WHERE date_trunc('month', expense_date) = date_trunc('month', now())
+  `);
+  const yearExpensesRow = await db.get(`
+    SELECT COALESCE(SUM(amount),0) as total FROM expenses
+    WHERE date_trunc('year', expense_date) = date_trunc('year', now())
+  `);
+  const recentExpenses = await db.all(`
+    SELECT id, expense_date, amount, category, note FROM expenses ORDER BY expense_date DESC, created_at DESC LIMIT 10
   `);
 
   const monthRevenue = parseFloat(monthRevenueRow.total) + parseFloat(monthManualRow.total);
@@ -550,7 +619,37 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
     topClients,
     recentManual: recentManual.map(r => ({ id: r.id, date: r.entry_date, amount: parseFloat(r.amount), note: r.note, paymentMethod: r.payment_method })),
     paymentBreakdown: paymentBreakdownRows.map(r => ({ method: r.payment_method, total: parseFloat(r.total) })),
+    paymentBreakdownWeek: paymentBreakdownWeekRows.map(r => ({ method: r.payment_method, total: parseFloat(r.total) })),
+    paymentBreakdownYear: paymentBreakdownYearRows.map(r => ({ method: r.payment_method, total: parseFloat(r.total) })),
+    weekRevenue: parseFloat(weekRevenueRow.total),
+    yearRevenue: parseFloat(yearRevenueRow.total),
+    monthlyBreakdown: monthlyBreakdownRows.map(r => ({ mois: r.mois, total: parseFloat(r.total) })),
+    weekExpenses: parseFloat(weekExpensesRow.total),
+    monthExpenses: parseFloat(monthExpensesRow.total),
+    yearExpenses: parseFloat(yearExpensesRow.total),
+    recentExpenses: recentExpenses.map(r => ({ id: r.id, date: r.expense_date, amount: parseFloat(r.amount), category: r.category, note: r.note })),
   });
+});
+
+// DÉPENSES
+router.post('/expenses', requireAdminAuth, async (req, res) => {
+  const { date, amount, category, note } = req.body;
+  if (!date || amount === undefined || amount === null || amount === '') {
+    return res.status(400).json({ error: 'Date et montant requis.' });
+  }
+  const parsedAmount = parseFloat(amount);
+  if (isNaN(parsedAmount) || parsedAmount < 0) {
+    return res.status(400).json({ error: 'Montant invalide.' });
+  }
+  const id = uuidv4();
+  await db.run('INSERT INTO expenses (id, expense_date, amount, category, note) VALUES (?,?,?,?,?)',
+    [id, date, parsedAmount, (category || 'autre').trim().slice(0, 50), (note || '').trim().slice(0, 200) || null]);
+  res.json({ ok: true, id });
+});
+
+router.delete('/expenses/:id', requireAdminAuth, async (req, res) => {
+  await db.run('DELETE FROM expenses WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
 });
 
 // CA manuel (clients hors app / hors tarifs)
@@ -619,6 +718,71 @@ router.post('/client/:id/style-photos', requireAdminAuth, async (req, res) => {
 
 router.delete('/style-photos/:id', requireAdminAuth, async (req, res) => {
   await db.run('DELETE FROM client_style_photos WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// DISPONIBLE MAINTENANT / URGENCE
+router.get('/urgent-availability', requireAdminAuth, async (req, res) => {
+  const row = await db.get('SELECT * FROM urgent_availability WHERE id = ?', ['default']);
+  const isLive = row && row.active && row.expires_at && new Date(row.expires_at) > new Date();
+  res.json({
+    active: !!isLive,
+    expiresAt: isLive ? row.expires_at : null,
+    surcharge: row ? parseFloat(row.surcharge) : 0,
+  });
+});
+
+router.put('/urgent-availability', requireAdminAuth, async (req, res) => {
+  const { active, duration_minutes, surcharge } = req.body;
+  if (active) {
+    const minutes = Math.max(5, Math.min(240, parseInt(duration_minutes, 10) || 30));
+    const expiresAt = new Date(Date.now() + minutes * 60000).toISOString();
+    const surchargeVal = (surcharge !== undefined && surcharge !== '' && surcharge !== null) ? Math.max(0, parseFloat(surcharge)) : 0;
+    await db.run('UPDATE urgent_availability SET active = true, expires_at = ?, surcharge = ? WHERE id = ?', [expiresAt, surchargeVal, 'default']);
+  } else {
+    await db.run('UPDATE urgent_availability SET active = false WHERE id = ?', ['default']);
+  }
+  const row = await db.get('SELECT * FROM urgent_availability WHERE id = ?', ['default']);
+  res.json({
+    active: row.active && new Date(row.expires_at) > new Date(),
+    expiresAt: row.active ? row.expires_at : null,
+    surcharge: parseFloat(row.surcharge),
+  });
+});
+
+// GET /api/admin/orders -> commandes passées sur la boutique
+router.get('/orders', requireAdminAuth, async (req, res) => {
+  const orders = await db.all(`
+    SELECT o.id, o.status, o.note, o.created_at, o.guest_name, o.guest_phone,
+           c.id AS client_id, c.nom, c.prenom, c.telephone
+    FROM orders o
+    LEFT JOIN clients c ON c.id = o.client_id
+    ORDER BY o.created_at DESC
+  `);
+  const items = await db.all(`SELECT order_id, product_name, product_price, quantity FROM order_items ORDER BY id ASC`);
+  const itemsByOrder = {};
+  items.forEach(it => {
+    if (!itemsByOrder[it.order_id]) itemsByOrder[it.order_id] = [];
+    itemsByOrder[it.order_id].push(it);
+  });
+  res.json({
+    orders: orders.map(o => ({
+      id: o.id,
+      status: o.status,
+      note: o.note,
+      created_at: o.created_at,
+      client_name: o.client_id ? `${o.prenom} ${o.nom}` : (o.guest_name || 'Client non reconnu'),
+      telephone: o.telephone || o.guest_phone,
+      recognized: !!o.client_id,
+      items: itemsByOrder[o.id] || [],
+      total: (itemsByOrder[o.id] || []).reduce((sum, it) => sum + parseFloat(it.product_price) * it.quantity, 0),
+    })),
+  });
+});
+
+router.put('/orders/:id', requireAdminAuth, async (req, res) => {
+  const { status } = req.body;
+  await db.run('UPDATE orders SET status = ? WHERE id = ?', [status, req.params.id]);
   res.json({ ok: true });
 });
 
