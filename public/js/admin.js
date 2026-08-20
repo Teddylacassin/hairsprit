@@ -105,6 +105,7 @@ const TABS = [
   { id: 'services', label: 'Tarifs' },
   { id: 'today', label: "Aujourd'hui" },
   { id: 'bookings', label: 'Réservations' },
+  { id: 'orders', label: 'Boutique' },
   { id: 'stats', label: 'Statistiques' },
 ];
 
@@ -150,6 +151,7 @@ function renderTabContent() {
   if (state.tab === 'services') return renderServicesTab(main);
   if (state.tab === 'today') return renderTodayTab(main);
   if (state.tab === 'bookings') return renderBookingsTab(main);
+  if (state.tab === 'orders') return renderOrdersTab(main);
   if (state.tab === 'stats') return renderStatsTab(main);
 }
 
@@ -857,11 +859,12 @@ function buildICSLink(booking, durationMinutes) {
 
 async function renderTodayTab(main) {
   main.innerHTML = `<div class="loading-spin"></div>`;
-  let bookings, schedule;
+  let bookings, schedule, urgent;
   try {
-    const [bookingsRes, scheduleRes] = await Promise.all([api('/bookings'), api('/schedule')]);
+    const [bookingsRes, scheduleRes, urgentRes] = await Promise.all([api('/bookings'), api('/schedule'), api('/urgent-availability')]);
     bookings = bookingsRes.bookings;
     schedule = scheduleRes.settings;
+    urgent = urgentRes;
   } catch (e) {
     main.innerHTML = `<div class="error-msg">${e.message}</div>`;
     return;
@@ -873,14 +876,45 @@ async function renderTodayTab(main) {
     .filter(b => b.status === 'confirme' && b.slot_datetime && new Date(b.slot_datetime).toISOString().slice(0, 10) === todayKey)
     .sort((a, b) => new Date(a.slot_datetime) - new Date(b.slot_datetime));
 
+  const minutesLeft = urgent.active ? Math.max(0, Math.round((new Date(urgent.expiresAt) - now) / 60000)) : 0;
+
   main.innerHTML = `
-    <div class="section-title" style="margin-top:0;">Planning du ${now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+    <div class="section-title" style="margin-top:0;">⚡ Disponible maintenant</div>
+    <div class="scanner-box" style="max-width:100%;">
+      ${urgent.active ? `
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+          <div>
+            <div style="font-weight:600;color:var(--succes);font-size:14.5px;">🟢 Actif</div>
+            <div style="color:var(--argent);font-size:12px;margin-top:2px;">Expire dans ${minutesLeft} min${urgent.surcharge > 0 ? ` · Supplément +${parseFloat(urgent.surcharge).toFixed(2)}€` : ''}</div>
+          </div>
+          <button class="btn btn-danger" id="deactivate-urgent-btn" style="width:auto;padding:9px 14px;font-size:12.5px;">Désactiver</button>
+        </div>
+      ` : `
+        <div style="display:flex;gap:10px;">
+          <div class="field" style="flex:1;">
+            <label>Durée</label>
+            <select id="urgent-duration" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:10px;border-radius:8px;">
+              <option value="30">30 min</option>
+              <option value="45" selected>45 min</option>
+              <option value="60">1h</option>
+            </select>
+          </div>
+          <div class="field" style="flex:1;">
+            <label>Supplément (€, optionnel)</label>
+            <input type="number" id="urgent-surcharge" min="0" step="1" placeholder="0" />
+          </div>
+        </div>
+        <button class="btn btn-primary" id="activate-urgent-btn">🟢 Activer "Disponible maintenant"</button>
+      `}
+    </div>
+
+    <div class="section-title">Planning du ${now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
     ${todayBookings.length === 0 ? `<div class="empty-state">Aucun rendez-vous confirmé aujourd'hui.</div>` : ''}
     <div style="display:flex;flex-direction:column;gap:10px;">
       ${todayBookings.map(b => `
         <div class="reward-admin-row" style="flex-direction:column;align-items:stretch;gap:8px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-            <div style="font-family:var(--font-mono);font-size:18px;font-weight:600;">${new Date(b.slot_datetime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
+            <div style="font-family:var(--font-mono);font-size:18px;font-weight:600;">${new Date(b.slot_datetime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}${b.is_urgent ? ' ⚡' : ''}</div>
             <a href="${buildICSLink(b, schedule.slot_duration_minutes)}" title="Ajouter au calendrier" style="text-decoration:none;">📅</a>
           </div>
           <div style="font-weight:600;font-size:14.5px;">${b.prenom} ${b.nom} · ${b.telephone}</div>
@@ -892,6 +926,39 @@ async function renderTodayTab(main) {
       `).join('')}
     </div>
   `;
+
+  const activateBtn = main.querySelector('#activate-urgent-btn');
+  if (activateBtn) {
+    activateBtn.onclick = async () => {
+      activateBtn.disabled = true;
+      activateBtn.textContent = 'Activation...';
+      try {
+        const duration_minutes = main.querySelector('#urgent-duration').value;
+        const surcharge = main.querySelector('#urgent-surcharge').value;
+        await api('/urgent-availability', { method: 'PUT', body: JSON.stringify({ active: true, duration_minutes, surcharge }) });
+        renderTodayTab(main);
+      } catch (err) {
+        alert(err.message);
+        activateBtn.disabled = false;
+        activateBtn.textContent = '🟢 Activer "Disponible maintenant"';
+      }
+    };
+  }
+  const deactivateBtn = main.querySelector('#deactivate-urgent-btn');
+  if (deactivateBtn) {
+    deactivateBtn.onclick = async () => {
+      deactivateBtn.disabled = true;
+      deactivateBtn.textContent = '...';
+      try {
+        await api('/urgent-availability', { method: 'PUT', body: JSON.stringify({ active: false }) });
+        renderTodayTab(main);
+      } catch (err) {
+        alert(err.message);
+        deactivateBtn.disabled = false;
+        deactivateBtn.textContent = 'Désactiver';
+      }
+    };
+  }
 }
 
 /* ---------------- BOOKINGS TAB ---------------- */
@@ -1188,7 +1255,91 @@ async function renderBookingsTab(main) {
   });
 }
 
+/* ---------------- ORDERS TAB (Boutique) ---------------- */
+async function renderOrdersTab(main) {
+  main.innerHTML = `<div class="loading-spin"></div>`;
+  let orders;
+  try {
+    const res = await api('/orders');
+    orders = res.orders;
+  } catch (e) {
+    main.innerHTML = `<div class="error-msg">${e.message}</div>`;
+    return;
+  }
+
+  main.innerHTML = `
+    <div class="section-title" style="margin-top:0;">Commandes de la boutique</div>
+    ${orders.length === 0 ? `<div class="empty-state">Aucune commande pour le moment.</div>` : ''}
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      ${orders.map(o => `
+        <div class="reward-admin-row" data-order-id="${o.id}" style="flex-direction:column;align-items:stretch;gap:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+            <div>
+              <div style="font-weight:600;font-size:14.5px;">${o.client_name}${o.recognized ? '' : ' <span style="color:var(--argent);font-weight:400;font-size:11.5px;">(non reconnu)</span>'}</div>
+              <div style="color:var(--argent);font-size:12.5px;">${o.telephone || '—'}</div>
+            </div>
+            <span class="pill status-${o.status}">${o.status.replace('_', ' ')}</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:3px;">
+            ${o.items.map(it => `
+              <div style="display:flex;justify-content:space-between;font-size:13px;">
+                <span>${it.quantity}× ${it.product_name}</span>
+                <span style="font-family:var(--font-mono);color:var(--argent-clair);">${(parseFloat(it.product_price) * it.quantity).toFixed(2)}€</span>
+              </div>
+            `).join('')}
+          </div>
+          <div style="display:flex;justify-content:space-between;border-top:1px solid var(--ligne);padding-top:8px;font-weight:600;font-size:13.5px;">
+            <span>Total</span>
+            <span style="font-family:var(--font-mono);color:var(--succes);">${o.total.toFixed(2)}€</span>
+          </div>
+          ${o.note ? `<div style="color:var(--argent);font-size:12.5px;">📝 ${o.note}</div>` : ''}
+          <div style="color:var(--argent);font-size:12px;">Commandé le ${formatDate(o.created_at)}</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${o.status === 'en_attente' ? `
+              <button class="btn btn-outline order-status-btn" data-status="prete" style="width:auto;flex:1;padding:9px 12px;font-size:12.5px;">Marquer prête</button>
+            ` : ''}
+            ${o.status !== 'recuperee' ? `
+              <button class="btn btn-outline order-status-btn" data-status="recuperee" style="width:auto;flex:1;padding:9px 12px;font-size:12.5px;">✓ Récupérée</button>
+            ` : `
+              <button class="btn btn-ghost order-status-btn" data-status="en_attente" style="width:auto;padding:9px 12px;font-size:12.5px;">Remettre en attente</button>
+            `}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  main.querySelectorAll('.order-status-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('[data-order-id]');
+      try {
+        await api(`/orders/${row.dataset.orderId}`, { method: 'PUT', body: JSON.stringify({ status: btn.dataset.status }) });
+        renderOrdersTab(main);
+      } catch (err) { alert(err.message); }
+    };
+  });
+}
+
 /* ---------------- STATS TAB ---------------- */
+const EXPENSE_CATEGORY_LABELS = {
+  essence: 'Essence',
+  produits: 'Produits',
+  materiel: 'Matériel',
+  assurance: 'Assurance',
+  autre: 'Autre',
+};
+
+function revenueBreakdownLine(breakdown) {
+  if (!breakdown || breakdown.length === 0) return '';
+  const espece = breakdown.find(p => p.method === 'espece');
+  const virement = breakdown.find(p => p.method === 'virement');
+  const parts = [];
+  if (espece && espece.total > 0) parts.push(`💵 ${espece.total.toFixed(2)}€`);
+  if (virement && virement.total > 0) parts.push(`💳 ${virement.total.toFixed(2)}€`);
+  if (parts.length === 0) return '';
+  return `<div style="color:var(--argent);font-size:11px;margin-top:5px;">${parts.join(' · ')}</div>`;
+}
+
 async function renderStatsTab(main) {
   main.innerHTML = `<div class="loading-spin"></div>`;
   try {
@@ -1213,26 +1364,104 @@ async function renderStatsTab(main) {
       <div style="color:var(--argent);font-size:12.5px;margin-top:4px;">${s.monthRevenueCount} prestation${s.monthRevenueCount > 1 ? 's' : ''} confirmée${s.monthRevenueCount > 1 ? 's' : ''} avec tarif ce mois-ci</div>
     </div>
 
-    <div class="section-title">Ajouter du CA manuel (clients hors app)</div>
+    <div class="section-title">Suivi du CA</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:100px;background:var(--panel);border:1px solid var(--ligne);border-radius:12px;padding:14px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--argent);">Cette semaine</div>
+        <div style="font-family:var(--font-mono);font-size:18px;font-weight:600;margin-top:4px;">${s.weekRevenue.toFixed(2)}€</div>
+        ${revenueBreakdownLine(s.paymentBreakdownWeek)}
+        <div style="color:${(s.weekRevenue - s.weekExpenses) >= 0 ? 'var(--succes)' : 'var(--danger)'};font-size:11.5px;margin-top:6px;border-top:1px solid var(--ligne);padding-top:6px;">Net : ${(s.weekRevenue - s.weekExpenses).toFixed(2)}€</div>
+      </div>
+      <div style="flex:1;min-width:100px;background:var(--panel);border:1px solid var(--ligne);border-radius:12px;padding:14px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--argent);">Ce mois</div>
+        <div style="font-family:var(--font-mono);font-size:18px;font-weight:600;margin-top:4px;">${s.monthRevenue.toFixed(2)}€</div>
+        ${revenueBreakdownLine(s.paymentBreakdown)}
+        <div style="color:${(s.monthRevenue - s.monthExpenses) >= 0 ? 'var(--succes)' : 'var(--danger)'};font-size:11.5px;margin-top:6px;border-top:1px solid var(--ligne);padding-top:6px;">Net : ${(s.monthRevenue - s.monthExpenses).toFixed(2)}€</div>
+      </div>
+      <div style="flex:1;min-width:100px;background:var(--panel);border:1px solid var(--ligne);border-radius:12px;padding:14px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--argent);">Cette année</div>
+        <div style="font-family:var(--font-mono);font-size:18px;font-weight:600;margin-top:4px;">${s.yearRevenue.toFixed(2)}€</div>
+        ${revenueBreakdownLine(s.paymentBreakdownYear)}
+        <div style="color:${(s.yearRevenue - s.yearExpenses) >= 0 ? 'var(--succes)' : 'var(--danger)'};font-size:11.5px;margin-top:6px;border-top:1px solid var(--ligne);padding-top:6px;">Net : ${(s.yearRevenue - s.yearExpenses).toFixed(2)}€</div>
+      </div>
+    </div>
+
+    <div class="section-title">Ajouter une dépense (essence, produits, matériel...)</div>
     <div class="scanner-box" style="max-width:100%;">
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
-        <div class="field" style="margin-bottom:0;flex:1;min-width:140px;">
+      <div style="display:flex;gap:10px;">
+        <div class="field" style="flex:1;">
           <label>Date</label>
-          <input type="date" id="manual-revenue-date" value="${new Date().toISOString().slice(0, 10)}" />
+          <input type="date" id="expense-date" value="${new Date().toISOString().slice(0, 10)}" />
         </div>
-        <div class="field" style="margin-bottom:0;flex:1;min-width:100px;">
+        <div class="field" style="flex:1;">
           <label>Montant (€)</label>
-          <input type="number" id="manual-revenue-amount" min="0" step="0.5" placeholder="0.00" />
+          <input type="number" id="expense-amount" min="0" step="0.5" placeholder="0.00" />
         </div>
       </div>
-      <div class="field" style="margin-top:10px;">
-        <label>Moyen de paiement</label>
-        <select id="manual-revenue-method" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:12px 14px;border-radius:10px;font-size:14px;">
-          <option value="espece">Espèce</option>
-          <option value="virement">Virement</option>
+      <div class="field">
+        <label>Catégorie</label>
+        <select id="expense-category" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:12px 14px;border-radius:10px;font-size:14px;">
+          <option value="essence">Essence / déplacement</option>
+          <option value="produits">Produits</option>
+          <option value="materiel">Matériel</option>
+          <option value="assurance">Assurance</option>
+          <option value="autre">Autre</option>
         </select>
       </div>
-      <div class="field" style="margin-top:10px;">
+      <div class="field">
+        <label>Note (optionnel)</label>
+        <input type="text" id="expense-note" placeholder="Ex : plein d'essence" />
+      </div>
+      <button class="btn btn-outline" id="add-expense-btn">Ajouter la dépense</button>
+      <div id="expense-msg"></div>
+      ${s.recentExpenses && s.recentExpenses.length > 0 ? `
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
+          ${s.recentExpenses.map(ex => `
+            <div class="history-item" data-expense-id="${ex.id}">
+              <div>
+                <div>${parseFloat(ex.amount).toFixed(2)}€ <span class="pill" style="margin-left:6px;">${EXPENSE_CATEGORY_LABELS[ex.category] || ex.category}</span></div>
+                <div class="date">${new Date(ex.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}${ex.note ? ` · ${ex.note}` : ''}</div>
+              </div>
+              <button class="btn btn-danger delete-expense-btn" style="width:auto;padding:8px 12px;font-size:12px;">Supprimer</button>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    </div>
+
+    ${s.monthlyBreakdown && s.monthlyBreakdown.length > 0 ? `
+      <div class="section-title">Historique mensuel</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        ${s.monthlyBreakdown.slice().reverse().map(m => {
+          const [yr, mo] = m.mois.split('-');
+          const label = new Date(parseInt(yr, 10), parseInt(mo, 10) - 1, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+          return `
+            <div style="display:flex;justify-content:space-between;background:var(--panel);border:1px solid var(--ligne);border-radius:8px;padding:9px 12px;font-size:13px;">
+              <span style="text-transform:capitalize;">${label}</span>
+              <span style="font-family:var(--font-mono);color:var(--succes);">${m.total.toFixed(2)}€</span>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    ` : ''}
+
+    <div class="section-title">Ajouter du CA manuel (clients hors app)</div>
+    <div class="scanner-box" style="max-width:100%;">
+      <div class="field">
+        <label>Date</label>
+        <input type="date" id="manual-revenue-date" value="${new Date().toISOString().slice(0, 10)}" style="max-width:220px;" />
+      </div>
+      <div style="display:flex;gap:10px;">
+        <div class="field" style="flex:1;">
+          <label>Espèce (€)</label>
+          <input type="number" id="manual-revenue-espece" min="0" step="0.5" placeholder="0.00" />
+        </div>
+        <div class="field" style="flex:1;">
+          <label>Virement (€)</label>
+          <input type="number" id="manual-revenue-virement" min="0" step="0.5" placeholder="0.00" />
+        </div>
+      </div>
+      <div class="field" style="margin-top:0;">
         <label>Note (optionnel)</label>
         <input type="text" id="manual-revenue-note" placeholder="Ex : 4 coupes" />
       </div>
@@ -1303,20 +1532,65 @@ async function renderStatsTab(main) {
     </div>
   `;
 
-  main.querySelector('#add-manual-revenue-btn').onclick = async () => {
-    const btn = main.querySelector('#add-manual-revenue-btn');
-    const date = main.querySelector('#manual-revenue-date').value;
-    const amount = main.querySelector('#manual-revenue-amount').value;
-    const note = main.querySelector('#manual-revenue-note').value;
-    const payment_method = main.querySelector('#manual-revenue-method').value;
+  main.querySelector('#add-expense-btn').onclick = async () => {
+    const btn = main.querySelector('#add-expense-btn');
+    const date = main.querySelector('#expense-date').value;
+    const amount = main.querySelector('#expense-amount').value;
+    const category = main.querySelector('#expense-category').value;
+    const note = main.querySelector('#expense-note').value;
     if (!date || !amount) {
-      main.querySelector('#manual-revenue-msg').innerHTML = `<div class="error-msg">Date et montant requis.</div>`;
+      main.querySelector('#expense-msg').innerHTML = `<div class="error-msg">Date et montant requis.</div>`;
       return;
     }
     btn.disabled = true;
     btn.textContent = 'Ajout...';
     try {
-      await api('/manual-revenue', { method: 'POST', body: JSON.stringify({ date, amount, note, payment_method }) });
+      await api('/expenses', { method: 'POST', body: JSON.stringify({ date, amount, category, note }) });
+      renderStatsTab(main);
+    } catch (err) {
+      main.querySelector('#expense-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
+      btn.disabled = false;
+      btn.textContent = 'Ajouter la dépense';
+    }
+  };
+
+  main.querySelectorAll('.delete-expense-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('[data-expense-id]');
+      const id = row.dataset.expenseId;
+      if (!confirm('Supprimer cette dépense ?')) return;
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        await api(`/expenses/${id}`, { method: 'DELETE' });
+        renderStatsTab(main);
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+        btn.textContent = 'Supprimer';
+      }
+    };
+  });
+
+  main.querySelector('#add-manual-revenue-btn').onclick = async () => {
+    const btn = main.querySelector('#add-manual-revenue-btn');
+    const date = main.querySelector('#manual-revenue-date').value;
+    const espece = main.querySelector('#manual-revenue-espece').value;
+    const virement = main.querySelector('#manual-revenue-virement').value;
+    const note = main.querySelector('#manual-revenue-note').value;
+    if (!date || (!espece && !virement)) {
+      main.querySelector('#manual-revenue-msg').innerHTML = `<div class="error-msg">Date et au moins un montant (espèce ou virement) requis.</div>`;
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Ajout...';
+    try {
+      if (espece && parseFloat(espece) > 0) {
+        await api('/manual-revenue', { method: 'POST', body: JSON.stringify({ date, amount: espece, note, payment_method: 'espece' }) });
+      }
+      if (virement && parseFloat(virement) > 0) {
+        await api('/manual-revenue', { method: 'POST', body: JSON.stringify({ date, amount: virement, note, payment_method: 'virement' }) });
+      }
       renderStatsTab(main);
     } catch (err) {
       main.querySelector('#manual-revenue-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
