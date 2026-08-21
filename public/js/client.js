@@ -176,11 +176,12 @@ document.addEventListener('visibilitychange', async () => {
 async function loadClientData() {
   const meRes = await api('/me');
   state.client = meRes.client;
-  const [rewardsRes, historyRes, bookingsRes, servicesRes] = await Promise.all([api('/rewards'), api('/history'), api('/bookings'), api('/services')]);
+  const [rewardsRes, historyRes, bookingsRes, servicesRes, urgentRes] = await Promise.all([api('/rewards'), api('/history'), api('/bookings'), api('/services'), api('/urgent-availability')]);
   state.rewards = rewardsRes.rewards;
   state.history = historyRes.visits;
   state.bookings = bookingsRes.bookings;
   state.services = servicesRes.services;
+  state.urgent = urgentRes;
 }
 
 /* ---------------- AUTH SCREEN ---------------- */
@@ -701,7 +702,18 @@ function renderDashboardTabContent() {
       const reached = c.points >= t;
       return `<div class="milestone ${reached ? 'reached' : ''}" style="left:${pos}%;" title="${t} points"></div>`;
     }).join('');
+    const urgentMinutesLeft = state.urgent && state.urgent.active ? Math.max(0, Math.round((new Date(state.urgent.expiresAt) - new Date()) / 60000)) : 0;
     zone.innerHTML = `
+      ${state.urgent && state.urgent.active ? `
+        <div class="urgent-banner" id="urgent-banner">
+          <div class="urgent-dot"></div>
+          <div class="urgent-text">
+            <div class="urgent-title">Créneau libre maintenant</div>
+            <div class="urgent-sub">Teddy dispo ~${urgentMinutesLeft} min${state.urgent.surcharge > 0 ? ` · +${parseFloat(state.urgent.surcharge).toFixed(2)}€` : ''}</div>
+          </div>
+          <button class="urgent-btn" id="urgent-book-btn">Réserver</button>
+        </div>
+      ` : ''}
       <div class="card-stage">
         <div class="loyalty-card ${state.cardFlipped ? 'flipped' : ''}" id="loyalty-card">
           <div class="card-face front">
@@ -772,6 +784,8 @@ function renderDashboardTabContent() {
     document.getElementById('loyalty-card').onclick = toggleCardFlip;
     document.getElementById('open-referral-btn').onclick = openReferralSheet;
     document.getElementById('open-style-profile-btn').onclick = openStyleProfileSheet;
+    const urgentBookBtn = document.getElementById('urgent-book-btn');
+    if (urgentBookBtn) urgentBookBtn.onclick = openUrgentBookingSheet;
     return;
   }
 
@@ -902,6 +916,126 @@ function formatDate(iso) {
 
 /* ---------------- REFERRAL SHEET ---------------- */
 /* ---------------- STYLE PROFILE SHEET ---------------- */
+/* ---------------- URGENT BOOKING SHEET ---------------- */
+async function openUrgentBookingSheet() {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'sheet-backdrop';
+  backdrop.innerHTML = `
+    <div class="sheet">
+      <h3>⚡ Créneau urgent</h3>
+      <div class="sub" style="color:var(--succes);font-weight:600;">Teddy est disponible maintenant !</div>
+      <div id="urgent-content"><div class="loading-spin"></div></div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+
+  const content = backdrop.querySelector('#urgent-content');
+  let allServices = [];
+  let selectedIds = [];
+
+  function personPrice(s) {
+    return parseFloat(s.price);
+  }
+  function totalPrice() {
+    const base = selectedIds.reduce((sum, id) => {
+      const s = allServices.find(sv => sv.id === id);
+      return sum + (s ? personPrice(s) : 0);
+    }, 0);
+    return base + (state.urgent && state.urgent.surcharge ? parseFloat(state.urgent.surcharge) : 0);
+  }
+
+  function render() {
+    content.innerHTML = `
+      <div class="field">
+        <label>Prestation(s)</label>
+        <div style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;">
+          ${allServices.map(s => `
+            <label style="display:block;background:var(--panel);border:1px solid var(--ligne);border-radius:8px;padding:10px 12px;font-size:13px;cursor:pointer;">
+              <input type="checkbox" class="urgent-service-check" data-id="${s.id}" ${selectedIds.includes(s.id) ? 'checked' : ''} style="vertical-align:middle;margin-right:8px;" />
+              <span style="vertical-align:middle;">${s.name}</span>
+              <div style="font-family:var(--font-mono);color:var(--argent-clair);font-size:11.5px;margin-top:4px;padding-left:26px;">${personPrice(s).toFixed(2)}€</div>
+            </label>
+          `).join('')}
+        </div>
+      </div>
+      <div class="field">
+        <label>📍 Adresse</label>
+        <div style="background:var(--panel);border:1px solid var(--ligne);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--argent-clair);">${state.client.address || "Aucune adresse enregistrée — ajoute-la depuis le bouton 📍 en haut de l'app"}</div>
+      </div>
+      ${state.urgent && state.urgent.surcharge > 0 ? `
+        <div style="display:flex;justify-content:space-between;font-size:13px;color:#e8b84b;margin:10px 0;">
+          <span>Supplément urgence</span>
+          <span style="font-family:var(--font-mono);">+${parseFloat(state.urgent.surcharge).toFixed(2)}€</span>
+        </div>
+      ` : ''}
+      ${selectedIds.length > 0 ? `
+        <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:600;border-top:1px solid var(--ligne);padding-top:10px;margin-bottom:10px;">
+          <span>Total</span>
+          <span style="font-family:var(--font-mono);color:var(--succes);">${totalPrice().toFixed(2)}€</span>
+        </div>
+      ` : ''}
+      <div id="urgent-error"></div>
+      <button class="btn btn-primary" id="urgent-confirm-btn" ${(selectedIds.length === 0 || !state.client.address) ? 'disabled' : ''}>
+        ${!state.client.address ? 'Ajoute ton adresse pour continuer' : (selectedIds.length === 0 ? 'Choisis une prestation' : "Je confirme, j'y suis maintenant !")}
+      </button>
+      <button class="btn btn-ghost" id="urgent-cancel-btn" style="margin-top:8px;">Annuler</button>
+    `;
+
+    content.querySelectorAll('.urgent-service-check').forEach(chk => {
+      chk.onchange = () => {
+        if (chk.checked) selectedIds.push(chk.dataset.id);
+        else selectedIds = selectedIds.filter(id => id !== chk.dataset.id);
+        render();
+      };
+    });
+
+    content.querySelector('#urgent-cancel-btn').onclick = () => backdrop.remove();
+
+    const confirmBtn = content.querySelector('#urgent-confirm-btn');
+    if (confirmBtn && !confirmBtn.disabled) {
+      confirmBtn.onclick = async () => {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Envoi en cours...';
+        try {
+          await api('/urgent-booking', {
+            method: 'POST',
+            body: JSON.stringify({ service_ids: selectedIds }),
+          });
+          backdrop.querySelector('.sheet').innerHTML = `
+            <div style="text-align:center;">
+              <div style="font-size:44px;margin-bottom:8px;">⚡✅</div>
+              <h3>C'est parti !</h3>
+              <div class="sub" style="line-height:1.5;">
+                Ta demande a été envoyée à Teddy.<br>
+                Il arrive chez toi d'ici quelques minutes.
+              </div>
+              <button class="btn btn-outline" id="urgent-close-success-btn" style="margin-top:10px;">Fermer</button>
+            </div>
+          `;
+          backdrop.querySelector('#urgent-close-success-btn').onclick = async () => {
+            backdrop.remove();
+            await loadClientData();
+            renderDashboard();
+          };
+        } catch (err) {
+          content.querySelector('#urgent-error').innerHTML = `<div class="error-msg">${err.message}</div>`;
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = "Je confirme, j'y suis maintenant !";
+        }
+      };
+    }
+  }
+
+  try {
+    const res = await api('/services');
+    allServices = res.services;
+    render();
+  } catch (err) {
+    content.innerHTML = `<div class="error-msg">${err.message}</div>`;
+  }
+}
+
 async function openStyleProfileSheet() {
   const backdrop = document.createElement('div');
   backdrop.className = 'sheet-backdrop';
