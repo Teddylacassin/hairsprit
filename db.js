@@ -217,6 +217,22 @@ async function initDb() {
     );
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS communes (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      surcharge NUMERIC NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+  await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS commune TEXT;`);
+  await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS commune_surcharge NUMERIC NOT NULL DEFAULT 0;`);
+
+  const communeCount = await get('SELECT COUNT(*) as c FROM communes');
+  if (parseInt(communeCount.c, 10) === 0) {
+    await run('INSERT INTO communes (id, name, surcharge, sort_order) VALUES (?,?,?,?)', [uuidv4(), 'Liège', 0, 1]);
+  }
+
   const scheduleCount = await get('SELECT COUNT(*) as c FROM schedule_settings');
   if (parseInt(scheduleCount.c, 10) === 0) {
     await run('INSERT INTO schedule_settings (id, open_days, start_time, end_time, slot_duration_minutes) VALUES (?,?,?,?,?)',
