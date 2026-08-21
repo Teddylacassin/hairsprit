@@ -1076,6 +1076,8 @@ function openBookingSheet() {
   let expandedPersons = new Set([0]); // quelle(s) liste(s) de prestations sont ouvertes
   let allServices = [];
   let allSlots = []; // tous les créneaux dispos (ISO), sur 14 jours
+  let allCommunes = [];
+  let selectedCommuneId = null;
 
   function personPrice(s) {
     if (!s) return 0;
@@ -1092,8 +1094,13 @@ function openBookingSheet() {
   function totalDuration() {
     return personServiceIds.reduce((sum, ids) => sum + personSum(ids, 'duration'), 0);
   }
+  function communeSurcharge() {
+    if (!selectedCommuneId) return 0;
+    const c = allCommunes.find(cm => cm.id === selectedCommuneId);
+    return c ? parseFloat(c.surcharge) : 0;
+  }
   function totalPrice() {
-    return personServiceIds.reduce((sum, ids) => sum + personSum(ids, 'price'), 0);
+    return personServiceIds.reduce((sum, ids) => sum + personSum(ids, 'price'), 0) + communeSurcharge();
   }
   function personSummary(ids) {
     if (ids.length === 0) return 'Choisir les prestations';
@@ -1124,6 +1131,11 @@ function openBookingSheet() {
       allServices = servicesRes.services;
       if (personServiceIds.length !== peopleCount) {
         personServiceIds = Array.from({ length: peopleCount }, (_, i) => personServiceIds[i] || []);
+      }
+      if (allCommunes.length === 0) {
+        const communesRes = await api('/communes');
+        allCommunes = communesRes.communes;
+        if (!selectedCommuneId && allCommunes.length > 0) selectedCommuneId = allCommunes[0].id;
       }
       const duration = allServices.length > 0 ? totalDuration() : null;
       const slotsRes = await api(`/available-slots${duration ? `?duration=${duration}` : ''}`);
@@ -1169,6 +1181,15 @@ function openBookingSheet() {
         </div>
       `).join('') : ''}
 
+      ${allCommunes.length > 0 ? `
+        <div class="field">
+          <label>Ta commune</label>
+          <select id="commune-select" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:12px 14px;border-radius:10px;font-size:14px;">
+            ${allCommunes.map(c => `<option value="${c.id}" ${c.id === selectedCommuneId ? 'selected' : ''}>${c.name}${parseFloat(c.surcharge) > 0 ? ` (+${parseFloat(c.surcharge).toFixed(2)}€)` : ''}</option>`).join('')}
+          </select>
+        </div>
+      ` : ''}
+
       ${allServices.length > 0 && personServiceIds.some(ids => ids.length > 0) ? `
         <div class="section-title">Récapitulatif</div>
         <div class="scanner-box" style="max-width:100%;padding:14px;">
@@ -1182,6 +1203,7 @@ function openBookingSheet() {
               }).join('')}
             </div>
           `).join('')}
+          ${communeSurcharge() > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#e8b84b;"><span>Supplément commune</span><span style="font-family:var(--font-mono);">+${communeSurcharge().toFixed(2)}€</span></div>` : ''}
           <div style="display:flex;justify-content:space-between;border-top:1px solid var(--ligne);padding-top:10px;margin-top:6px;font-size:14px;font-weight:600;">
             <span>Total (${totalDuration()} min)</span>
             <span style="font-family:var(--font-mono);color:var(--succes);">${totalPrice().toFixed(2)}€</span>
@@ -1218,6 +1240,14 @@ function openBookingSheet() {
 
     zone.querySelector('#people-minus').onclick = () => { if (peopleCount > 1) { peopleCount--; selectedSlot = null; loadAll(); } };
     zone.querySelector('#people-plus').onclick = () => { if (peopleCount < 6) { peopleCount++; selectedSlot = null; loadAll(); } };
+
+    const communeSelect = zone.querySelector('#commune-select');
+    if (communeSelect) {
+      communeSelect.onchange = (e) => {
+        selectedCommuneId = e.target.value;
+        loadAll();
+      };
+    }
 
     zone.querySelectorAll('.service-toggle-btn').forEach(btn => {
       btn.onclick = () => {
@@ -1274,6 +1304,7 @@ function openBookingSheet() {
               people_count: peopleCount,
               total_duration_minutes: allServices.length > 0 ? totalDuration() : undefined,
               booking_details: allServices.length > 0 ? bookingDetailsText() : undefined,
+              commune_id: selectedCommuneId || undefined,
             }),
           });
           backdrop.querySelector('.sheet').innerHTML = `
