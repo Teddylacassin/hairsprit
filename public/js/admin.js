@@ -832,6 +832,87 @@ async function renderServicesTab(main) {
       renderServicesTab(main);
     } catch (err) { alert(err.message); }
   };
+
+  renderCommunesSection(main);
+}
+
+async function renderCommunesSection(main) {
+  let communes;
+  try {
+    const res = await api('/communes');
+    communes = res.communes;
+  } catch (e) {
+    return;
+  }
+
+  const zone = document.createElement('div');
+  zone.id = 'communes-zone';
+  main.appendChild(zone);
+
+  zone.innerHTML = `
+    <div class="section-title">Communes (supplément hors Liège)</div>
+    <div class="sub" style="color:var(--argent);font-size:12.5px;margin-bottom:14px;">Le client choisit sa commune en réservant. "Liège" (0€) est déjà là par défaut.</div>
+    <div class="rewards-admin-grid" id="communes-list"></div>
+    <div class="section-title">Ajouter une commune</div>
+    <form id="new-commune-form">
+      <div style="display:flex;gap:10px;">
+        <div class="field" style="flex:2;"><label>Nom</label><input name="name" required placeholder="Ex : Herstal" /></div>
+        <div class="field" style="flex:1;"><label>Supplément (€)</label><input name="surcharge" type="number" min="0" step="0.5" placeholder="5" required /></div>
+      </div>
+      <button class="btn btn-outline" type="submit">Ajouter</button>
+      <div id="new-commune-msg"></div>
+    </form>
+  `;
+
+  const list = zone.querySelector('#communes-list');
+  list.innerHTML = communes.map(c => `
+    <div class="reward-admin-row" data-id="${c.id}">
+      <div class="grow"><input class="edit-name" value="${c.name.replace(/"/g, '&quot;')}" style="width:100%;" /></div>
+      <input class="edit-surcharge" type="number" min="0" step="0.5" value="${c.surcharge}" style="width:80px;" title="Supplément (€)" />
+      <button class="btn btn-outline save-commune" style="width:auto;padding:10px 14px;">Enregistrer</button>
+      <button class="btn btn-danger delete-commune" style="width:auto;padding:10px 14px;">Supprimer</button>
+    </div>
+  `).join('') || `<div class="empty-state">Aucune commune configurée.</div>`;
+
+  list.querySelectorAll('.save-commune').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('.reward-admin-row');
+      try {
+        await api(`/communes/${row.dataset.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: row.querySelector('.edit-name').value,
+            surcharge: row.querySelector('.edit-surcharge').value,
+          }),
+        });
+        renderServicesTab(main);
+      } catch (e) { alert(e.message); }
+    };
+  });
+  list.querySelectorAll('.delete-commune').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('.reward-admin-row');
+      if (!confirm('Supprimer cette commune ?')) return;
+      try {
+        await api(`/communes/${row.dataset.id}`, { method: 'DELETE' });
+        renderServicesTab(main);
+      } catch (e) { alert(e.message); }
+    };
+  });
+
+  zone.querySelector('#new-commune-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api('/communes', {
+        method: 'POST',
+        body: JSON.stringify({ name: fd.get('name'), surcharge: fd.get('surcharge') }),
+      });
+      renderServicesTab(main);
+    } catch (err) {
+      zone.querySelector('#new-commune-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
+    }
+  };
 }
 
 /* ---------------- TODAY TAB ---------------- */
