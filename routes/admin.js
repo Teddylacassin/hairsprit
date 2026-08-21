@@ -387,7 +387,7 @@ router.delete('/blocked-slots/:id', requireAdminAuth, async (req, res) => {
 // GET /api/admin/bookings
 router.get('/bookings', requireAdminAuth, async (req, res) => {
   const rows = await db.all(`
-    SELECT b.id, b.message, b.status, b.created_at, b.slot_datetime, b.people_count, b.total_duration_minutes, b.booking_details,
+    SELECT b.id, b.message, b.status, b.created_at, b.slot_datetime, b.people_count, b.total_duration_minutes, b.booking_details, b.commune, b.commune_surcharge,
            c.nom, c.prenom, c.telephone, c.address, c.admin_notes,
            s.name AS service_name, s.price AS service_price
     FROM bookings b
@@ -450,21 +450,21 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
   `);
 
   const monthRevenueRow = await db.get(`
-    SELECT COALESCE(SUM(s.price + COALESCE(b.urgent_surcharge,0)),0) as total, COUNT(*) as c
+    SELECT COALESCE(SUM(s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)),0) as total, COUNT(*) as c
     FROM bookings b JOIN services s ON s.id = b.service_id
     WHERE b.status = 'confirme'
       AND date_trunc('month', b.slot_datetime) = date_trunc('month', now())
   `);
 
   const lastMonthRevenueRow = await db.get(`
-    SELECT COALESCE(SUM(s.price + COALESCE(b.urgent_surcharge,0)),0) as total
+    SELECT COALESCE(SUM(s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)),0) as total
     FROM bookings b JOIN services s ON s.id = b.service_id
     WHERE b.status = 'confirme'
       AND date_trunc('month', b.slot_datetime) = date_trunc('month', now() - interval '1 month')
   `);
 
   const avgBasketRow = await db.get(`
-    SELECT COALESCE(AVG(s.price + COALESCE(b.urgent_surcharge,0)),0) as avg_price
+    SELECT COALESCE(AVG(s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)),0) as avg_price
     FROM bookings b JOIN services s ON s.id = b.service_id
     WHERE b.status = 'confirme'
   `);
@@ -524,7 +524,7 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
 
   const weekRevenueRow = await db.get(`
     WITH combined AS (
-      SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0)) AS amount
+      SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
       FROM bookings b JOIN services s ON s.id = b.service_id
       WHERE b.status = 'confirme'
       UNION ALL
@@ -536,7 +536,7 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
 
   const yearRevenueRow = await db.get(`
     WITH combined AS (
-      SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0)) AS amount
+      SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
       FROM bookings b JOIN services s ON s.id = b.service_id
       WHERE b.status = 'confirme'
       UNION ALL
@@ -548,7 +548,7 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
 
   const monthlyBreakdownRows = await db.all(`
     WITH combined AS (
-      SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0)) AS amount
+      SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
       FROM bookings b JOIN services s ON s.id = b.service_id
       WHERE b.status = 'confirme'
       UNION ALL
@@ -748,6 +748,41 @@ router.put('/urgent-availability', requireAdminAuth, async (req, res) => {
     expiresAt: row.active ? row.expires_at : null,
     surcharge: parseFloat(row.surcharge),
   });
+});
+
+// COMMUNES (supplément hors Liège)
+router.get('/communes', requireAdminAuth, async (req, res) => {
+  const communes = await db.all('SELECT * FROM communes ORDER BY sort_order ASC');
+  res.json({ communes });
+});
+
+router.post('/communes', requireAdminAuth, async (req, res) => {
+  const { name, surcharge } = req.body;
+  if (!name) return res.status(400).json({ error: 'Nom de la commune requis.' });
+  const existing = await db.get('SELECT id FROM communes WHERE name ILIKE ?', [name.trim()]);
+  if (existing) return res.status(409).json({ error: 'Cette commune existe déjà.' });
+  const id = uuidv4();
+  const maxOrderRow = await db.get('SELECT COALESCE(MAX(sort_order),0) as m FROM communes');
+  await db.run('INSERT INTO communes (id, name, surcharge, sort_order) VALUES (?,?,?,?)',
+    [id, name.trim(), parseFloat(surcharge) || 0, parseInt(maxOrderRow.m, 10) + 1]);
+  res.json({ ok: true, id });
+});
+
+router.put('/communes/:id', requireAdminAuth, async (req, res) => {
+  const commune = await db.get('SELECT * FROM communes WHERE id = ?', [req.params.id]);
+  if (!commune) return res.status(404).json({ error: 'Commune introuvable.' });
+  const { name, surcharge } = req.body;
+  await db.run('UPDATE communes SET name=?, surcharge=? WHERE id=?', [
+    name !== undefined ? name.trim() : commune.name,
+    surcharge !== undefined ? (parseFloat(surcharge) || 0) : commune.surcharge,
+    req.params.id,
+  ]);
+  res.json({ ok: true });
+});
+
+router.delete('/communes/:id', requireAdminAuth, async (req, res) => {
+  await db.run('DELETE FROM communes WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
 });
 
 // GET /api/admin/orders -> commandes passées sur la boutique
