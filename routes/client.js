@@ -247,6 +247,12 @@ router.get('/services', requireClientAuth, async (req, res) => {
   res.json({ services });
 });
 
+// GET /api/client/communes -> liste des communes et leur supplément (hors Liège)
+router.get('/communes', requireClientAuth, async (req, res) => {
+  const communes = await db.all('SELECT id, name, surcharge FROM communes ORDER BY sort_order ASC');
+  res.json({ communes });
+});
+
 // GET /api/client/available-slots -> compute upcoming available slots from schedule settings
 // ?duration=N (minutes) -> durée totale nécessaire (ex: plusieurs personnes). Par défaut, durée du créneau standard.
 router.get('/available-slots', requireClientAuth, async (req, res) => {
@@ -337,9 +343,19 @@ router.put('/booking/:id/cancel', requireClientAuth, async (req, res) => {
 
 // POST /api/client/booking
 router.post('/booking', requireClientAuth, async (req, res) => {
-  const { message, slot_datetime, service_id, people_count, total_duration_minutes, booking_details } = req.body;
+  const { message, slot_datetime, service_id, people_count, total_duration_minutes, booking_details, commune_id } = req.body;
   const id = uuidv4();
   const duration = parseInt(total_duration_minutes, 10) || 30;
+
+  let communeName = null;
+  let communeSurcharge = 0;
+  if (commune_id) {
+    const commune = await db.get('SELECT * FROM communes WHERE id = ?', [commune_id]);
+    if (commune) {
+      communeName = commune.name;
+      communeSurcharge = parseFloat(commune.surcharge) || 0;
+    }
+  }
 
   if (slot_datetime) {
     const startMs = new Date(slot_datetime).getTime();
@@ -369,9 +385,10 @@ router.post('/booking', requireClientAuth, async (req, res) => {
   }
 
   const peopleCountVal = Math.max(1, parseInt(people_count, 10) || 1);
+  const finalBookingDetails = `${(booking_details || '').trim()}${communeName ? `${booking_details ? ' · ' : ''}Commune : ${communeName}${communeSurcharge > 0 ? ` (+${communeSurcharge.toFixed(2)}€)` : ''}` : ''}`.trim().slice(0, 800) || null;
 
-  await db.run('INSERT INTO bookings (id, client_id, message, slot_datetime, service_id, people_count, total_duration_minutes, booking_details) VALUES (?,?,?,?,?,?,?,?)',
-    [id, req.clientId, (message || '').trim().slice(0, 500), slot_datetime || null, service_id || null, peopleCountVal, duration, (booking_details || '').trim().slice(0, 800) || null]);
+  await db.run('INSERT INTO bookings (id, client_id, message, slot_datetime, service_id, people_count, total_duration_minutes, booking_details, commune, commune_surcharge) VALUES (?,?,?,?,?,?,?,?,?,?)',
+    [id, req.clientId, (message || '').trim().slice(0, 500), slot_datetime || null, service_id || null, peopleCountVal, duration, finalBookingDetails, communeName, communeSurcharge]);
 
   const client = await db.get('SELECT * FROM clients WHERE id = ?', [req.clientId]);
   let serviceName = null;
@@ -385,7 +402,7 @@ router.post('/booking', requireClientAuth, async (req, res) => {
     slotDatetime: slot_datetime,
     serviceName,
     peopleCount: peopleCountVal,
-    bookingDetails: booking_details,
+    bookingDetails: finalBookingDetails,
   }).catch(() => {});
 
   res.json({ ok: true, bookingId: id });
@@ -417,6 +434,92 @@ router.put('/style-profile', requireClientAuth, async (req, res) => {
     );
   }
   res.json({ ok: true });
+});
+
+// GET /api/client/urgent-availability -> Teddy est-il "disponible maintenant" ?
+router.get('/urgent-availability', requireClientAuth, async (req, res) => {
+  const row = await db.get('SELECT * FROM urgent_availability WHERE id = ?', ['default']);
+  const isLive = row && row.active && row.expires_at && new Date(row.expires_at) > new Date();
+  res.json({
+    active: !!isLive,
+    expiresAt: isLive ? row.expires_at : null,
+    surcharge: row ? parseFloat(row.surcharge) : 0,
+  });
+});
+
+// POST /api/client/urgent-booking -> réservation immédiate sur le créneau "disponible maintenant"
+router.post('/urgent-booking', requireClientAuth, async (req, res) => {
+  const row = await db.get('SELECT * FROM urgent_availability WHERE id = ?', ['default']);
+  const isLive = row && row.active && row.expires_at && new Date(row.expires_at) > new Date();
+  if (!isLive) {
+    return res.status(409).json({ error: "Ce créneau urgent n'est plus disponible." });
+  }
+
+  const { service_ids, message } = req.body;
+  const ids = Array.isArray(service_ids) ? service_ids : [];
+  if (ids.length === 0) {
+    return res.status(400).json({ error: 'Choisissez au moins une prestation.' });
+  }
+  const allServices = await db.all('SELECT * FROM services WHERE active = 1');
+  const chosen = allServices.filter(s => ids.includes(s.id));
+  if (chosen.length === 0) {
+    return res.status(400).json({ error: 'Prestation invalide.' });
+  }
+
+  const duration = chosen.reduce((sum, s) => sum + (s.duration_minutes || 30), 0);
+  const surcharge = parseFloat(row.surcharge) || 0;
+  const names = chosen.map(s => s.name).join(' + ');
+  const details = `⚡ URGENT : ${names}${surcharge > 0 ? ` (+${surcharge.toFixed(2)}€ urgence)` : ''}`;
+  const id = uuidv4();
+  const now = new Date().toISOString();
+
+  await db.run(
+    'INSERT INTO bookings (id, client_id, message, slot_datetime, service_id, people_count, total_duration_minutes, booking_details, status, urgent_surcharge, is_urgent) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+    [id, req.clientId, (message || '').trim().slice(0, 500), now, chosen[0].id, 1, duration, details, 'confirme', surcharge, 1]
+  );
+
+  const client = await db.get('SELECT * FROM clients WHERE id = ?', [req.clientId]);
+  sendBookingAlertEmail({
+    client,
+    message: `⚡ RÉSERVATION URGENTE ! ${(message || '').trim()}`.trim(),
+    slotDatetime: now,
+    serviceName: names,
+    peopleCount: 1,
+    bookingDetails: details,
+  }).catch(() => {});
+
+  res.json({ ok: true, bookingId: id });
+});
+
+// POST /api/client/public-order -> reçoit une commande envoyée depuis la boutique en ligne
+// Pas d'authentification requise (la boutique est un site séparé) : on retrouve le client par téléphone.
+router.post('/public-order', async (req, res) => {
+  const { telephone, name, items, note } = req.body;
+  if (!telephone) {
+    return res.status(400).json({ error: 'Téléphone requis.' });
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Le panier est vide.' });
+  }
+
+  const tel = normalizePhone(telephone);
+  const client = await db.get('SELECT * FROM clients WHERE telephone = ?', [tel]);
+
+  const orderId = uuidv4();
+  await db.run(
+    'INSERT INTO orders (id, client_id, guest_name, guest_phone, note, status) VALUES (?,?,?,?,?,?)',
+    [orderId, client ? client.id : null, (name || '').trim().slice(0, 100) || null, tel, (note || '').trim().slice(0, 300) || null, 'en_attente']
+  );
+
+  for (const item of items) {
+    if (!item || !item.name || item.price === undefined) continue;
+    await db.run(
+      'INSERT INTO order_items (id, order_id, product_id, product_name, product_price, quantity) VALUES (?,?,?,?,?,?)',
+      [uuidv4(), orderId, item.product_id || null, String(item.name).trim().slice(0, 200), parseFloat(item.price) || 0, Math.max(1, parseInt(item.quantity, 10) || 1)]
+    );
+  }
+
+  res.json({ ok: true, orderId, recognized: !!client });
 });
 
 module.exports = router;
