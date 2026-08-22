@@ -938,14 +938,44 @@ function buildICSLink(booking, durationMinutes) {
   return 'data:text/calendar;charset=utf8,' + encodeURIComponent(ics);
 }
 
+let tripWatchId = null;
+
+function startTripLocationSharing() {
+  if (tripWatchId !== null) return; // déjà en cours
+  if (!navigator.geolocation) {
+    alert("Ce téléphone/navigateur ne supporte pas la géolocalisation.");
+    return;
+  }
+  tripWatchId = navigator.geolocation.watchPosition(
+    async (pos) => {
+      try {
+        await api('/trip/update', {
+          method: 'POST',
+          body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        });
+      } catch (e) { /* silent, on réessaiera à la prochaine position */ }
+    },
+    (err) => { console.error('[Hairsprit] Erreur GPS:', err.message); },
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
+}
+
+function stopTripLocationSharing() {
+  if (tripWatchId !== null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(tripWatchId);
+    tripWatchId = null;
+  }
+}
+
 async function renderTodayTab(main) {
   main.innerHTML = `<div class="loading-spin"></div>`;
-  let bookings, schedule, urgent;
+  let bookings, schedule, urgent, trip;
   try {
-    const [bookingsRes, scheduleRes, urgentRes] = await Promise.all([api('/bookings'), api('/schedule'), api('/urgent-availability')]);
+    const [bookingsRes, scheduleRes, urgentRes, tripRes] = await Promise.all([api('/bookings'), api('/schedule'), api('/urgent-availability'), api('/trip/status')]);
     bookings = bookingsRes.bookings;
     schedule = scheduleRes.settings;
     urgent = urgentRes;
+    trip = tripRes;
   } catch (e) {
     main.innerHTML = `<div class="error-msg">${e.message}</div>`;
     return;
@@ -989,6 +1019,17 @@ async function renderTodayTab(main) {
       `}
     </div>
 
+    ${trip.active ? `
+      <div class="section-title">🚐 Trajet en cours</div>
+      <div class="scanner-box" style="max-width:100%;">
+        <div style="display:flex;align-items:center;gap:8px;color:var(--succes);font-weight:600;font-size:14px;">
+          <div style="width:8px;height:8px;background:var(--succes);border-radius:50%;box-shadow:0 0 6px var(--succes);"></div>
+          Position partagée en direct
+        </div>
+        <button class="btn btn-danger" id="stop-trip-btn" style="margin-top:10px;">Terminer le trajet</button>
+      </div>
+    ` : ''}
+
     <div class="section-title">Planning du ${now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
     ${todayBookings.length === 0 ? `<div class="empty-state">Aucun rendez-vous confirmé aujourd'hui.</div>` : ''}
     <div style="display:flex;flex-direction:column;gap:10px;">
@@ -1003,10 +1044,46 @@ async function renderTodayTab(main) {
           ${b.booking_details ? `<div style="color:var(--succes);font-size:13px;">${b.booking_details}</div>` : (b.service_name ? `<div style="color:var(--succes);font-size:13px;">${b.service_name} · ${parseFloat(b.service_price).toFixed(2)}€</div>` : '')}
           ${b.address ? `<div style="color:var(--argent);font-size:13px;">📍 ${b.address} <button class="copy-address-btn" data-address="${b.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button> <a href="https://www.waze.com/ul?q=${encodeURIComponent(b.address)}&navigate=yes" target="_blank" rel="noopener" title="Ouvrir dans Waze" style="text-decoration:none;padding:2px 4px;">🚗</a></div>` : ''}
           ${b.admin_notes ? `<div style="color:var(--argent);font-size:12.5px;">📝 ${b.admin_notes}</div>` : ''}
+          ${!trip.active ? `<button class="btn btn-outline start-trip-btn" data-client-id="${b.client_id}" style="margin-top:6px;">🚐 Démarrer le trajet</button>` : ''}
         </div>
       `).join('')}
     </div>
   `;
+
+  main.querySelectorAll('.start-trip-btn').forEach(btn => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      btn.textContent = 'Démarrage...';
+      try {
+        await api('/trip/start', { method: 'POST', body: JSON.stringify({ client_id: btn.dataset.clientId }) });
+        startTripLocationSharing();
+        renderTodayTab(main);
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+        btn.textContent = '🚐 Démarrer le trajet';
+      }
+    };
+  });
+
+  const stopTripBtn = main.querySelector('#stop-trip-btn');
+  if (stopTripBtn) {
+    stopTripBtn.onclick = async () => {
+      stopTripBtn.disabled = true;
+      stopTripBtn.textContent = '...';
+      try {
+        stopTripLocationSharing();
+        await api('/trip/stop', { method: 'POST' });
+        renderTodayTab(main);
+      } catch (err) {
+        alert(err.message);
+        stopTripBtn.disabled = false;
+        stopTripBtn.textContent = 'Terminer le trajet';
+      }
+    };
+  }
+
+  if (trip.active) startTripLocationSharing();
 
   const activateBtn = main.querySelector('#activate-urgent-btn');
   if (activateBtn) {
