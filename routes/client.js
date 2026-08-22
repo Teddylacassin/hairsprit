@@ -522,4 +522,21 @@ router.post('/public-order', async (req, res) => {
   res.json({ ok: true, orderId, recognized: !!client });
 });
 
+// GET /api/client/trip-status -> Teddy est-il en route vers moi actuellement ?
+router.get('/trip-status', requireClientAuth, async (req, res) => {
+  const trip = await db.get('SELECT * FROM live_trip WHERE id = ?', ['default']);
+  if (!trip || !trip.active || trip.client_id !== req.clientId) {
+    return res.json({ active: false });
+  }
+  const client = await db.get('SELECT address, address_lat, address_lng FROM clients WHERE id = ?', [req.clientId]);
+  res.json({
+    active: true,
+    barberLat: trip.lat != null ? parseFloat(trip.lat) : null,
+    barberLng: trip.lng != null ? parseFloat(trip.lng) : null,
+    updatedAt: trip.updated_at,
+    homeLat: client && client.address_lat != null ? parseFloat(client.address_lat) : null,
+    homeLng: client && client.address_lng != null ? parseFloat(client.address_lng) : null,
+  });
+});
+
 module.exports = router;
