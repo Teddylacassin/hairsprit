@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { signToken, requireAdminAuth } = require('../middleware/auth');
 const pointsEmitter = require('../events');
+const { geocodeAddress } = require('../geocode');
 
 const router = express.Router();
 
@@ -387,7 +388,7 @@ router.delete('/blocked-slots/:id', requireAdminAuth, async (req, res) => {
 // GET /api/admin/bookings
 router.get('/bookings', requireAdminAuth, async (req, res) => {
   const rows = await db.all(`
-    SELECT b.id, b.message, b.status, b.created_at, b.slot_datetime, b.people_count, b.total_duration_minutes, b.booking_details, b.commune, b.commune_surcharge,
+    SELECT b.id, b.client_id, b.message, b.status, b.created_at, b.slot_datetime, b.people_count, b.total_duration_minutes, b.booking_details, b.commune, b.commune_surcharge,
            c.nom, c.prenom, c.telephone, c.address, c.admin_notes,
            s.name AS service_name, s.price AS service_price
     FROM bookings b
@@ -819,6 +820,45 @@ router.put('/orders/:id', requireAdminAuth, async (req, res) => {
   const { status } = req.body;
   await db.run('UPDATE orders SET status = ? WHERE id = ?', [status, req.params.id]);
   res.json({ ok: true });
+});
+
+// SUIVI EN DIRECT (trajet vers le client, façon "Uber Eats")
+router.post('/trip/start', requireAdminAuth, async (req, res) => {
+  const { client_id } = req.body;
+  if (!client_id) return res.status(400).json({ error: 'Client requis.' });
+  const client = await db.get('SELECT * FROM clients WHERE id = ?', [client_id]);
+  if (!client) return res.status(404).json({ error: 'Client introuvable.' });
+
+  // Géocode l'adresse du client si ce n'est pas déjà fait (mise en cache)
+  if ((client.address_lat == null || client.address_lng == null) && client.address) {
+    const coords = await geocodeAddress(client.address);
+    if (coords) {
+      await db.run('UPDATE clients SET address_lat = ?, address_lng = ? WHERE id = ?', [coords.lat, coords.lng, client_id]);
+    }
+  }
+
+  await db.run('UPDATE live_trip SET active = true, client_id = ?, lat = NULL, lng = NULL, updated_at = now() WHERE id = ?', [client_id, 'default']);
+  res.json({ ok: true });
+});
+
+router.post('/trip/update', requireAdminAuth, async (req, res) => {
+  const { lat, lng } = req.body;
+  if (lat === undefined || lng === undefined) return res.status(400).json({ error: 'Position requise.' });
+  await db.run('UPDATE live_trip SET lat = ?, lng = ?, updated_at = now() WHERE id = ?', [parseFloat(lat), parseFloat(lng), 'default']);
+  res.json({ ok: true });
+});
+
+router.post('/trip/stop', requireAdminAuth, async (req, res) => {
+  await db.run('UPDATE live_trip SET active = false WHERE id = ?', ['default']);
+  res.json({ ok: true });
+});
+
+router.get('/trip/status', requireAdminAuth, async (req, res) => {
+  const trip = await db.get('SELECT * FROM live_trip WHERE id = ?', ['default']);
+  res.json({
+    active: !!(trip && trip.active),
+    clientId: trip ? trip.client_id : null,
+  });
 });
 
 module.exports = router;
