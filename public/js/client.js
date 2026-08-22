@@ -660,6 +660,7 @@ function renderDashboard() {
 
   document.querySelectorAll('.admin-nav button').forEach(btn => {
     btn.onclick = () => {
+      if (btn.dataset.tab !== 'card') stopTripPolling();
       state.dashboardTab = btn.dataset.tab;
       renderDashboard();
     };
@@ -667,6 +668,7 @@ function renderDashboard() {
   document.getElementById('edit-address-btn').onclick = openAddressSheet;
   document.getElementById('logout-btn').onclick = () => {
     if (state.eventSource) { state.eventSource.close(); state.eventSource = null; }
+    stopTripPolling();
     clearToken();
     state.client = null;
     state.qrcode = null;
@@ -704,6 +706,7 @@ function renderDashboardTabContent() {
     }).join('');
     const urgentMinutesLeft = state.urgent && state.urgent.active ? Math.max(0, Math.round((new Date(state.urgent.expiresAt) - new Date()) / 60000)) : 0;
     zone.innerHTML = `
+      <div id="trip-section"></div>
       ${state.urgent && state.urgent.active ? `
         <div class="urgent-banner" id="urgent-banner">
           <div class="urgent-dot"></div>
@@ -786,6 +789,8 @@ function renderDashboardTabContent() {
     document.getElementById('open-style-profile-btn').onclick = openStyleProfileSheet;
     const urgentBookBtn = document.getElementById('urgent-book-btn');
     if (urgentBookBtn) urgentBookBtn.onclick = openUrgentBookingSheet;
+    renderTripSection();
+    startTripPolling();
     return;
   }
 
@@ -902,6 +907,89 @@ function renderDashboardTabContent() {
         `).join('')}
       </div>
     `;
+  }
+}
+
+/* ---------------- SUIVI EN DIRECT (trajet) ---------------- */
+let tripPollTimer = null;
+let tripLeafletMap = null;
+let tripBarberMarker = null;
+let tripHomeMarker = null;
+
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function startTripPolling() {
+  if (tripPollTimer !== null) return;
+  tripPollTimer = setInterval(() => {
+    if (state.dashboardTab === 'card') renderTripSection();
+  }, 12000);
+}
+
+function stopTripPolling() {
+  if (tripPollTimer !== null) { clearInterval(tripPollTimer); tripPollTimer = null; }
+  tripLeafletMap = null;
+  tripBarberMarker = null;
+  tripHomeMarker = null;
+}
+
+async function renderTripSection() {
+  const container = document.getElementById('trip-section');
+  if (!container) return;
+  let trip;
+  try {
+    trip = await api('/trip-status');
+  } catch (e) { return; }
+
+  if (!trip.active || trip.barberLat == null) {
+    container.innerHTML = '';
+    tripLeafletMap = null;
+    return;
+  }
+
+  let etaText = null;
+  let distText = null;
+  if (trip.homeLat != null && trip.homeLng != null) {
+    const distKm = haversineKm(trip.barberLat, trip.barberLng, trip.homeLat, trip.homeLng);
+    const etaMin = Math.max(1, Math.round((distKm / 25) * 60)); // vitesse moyenne estimée 25 km/h en ville
+    etaText = `~${etaMin} min`;
+    distText = `${distKm.toFixed(1)} km`;
+  }
+
+  if (!tripLeafletMap) {
+    container.innerHTML = `
+      <div class="trip-map-card">
+        <div id="trip-leaflet-map"></div>
+        <div class="trip-info-bar">
+          <div class="trip-eta-row">
+            <div>
+              <div class="trip-eta-label">Arrivée estimée</div>
+              <div class="trip-eta-big" id="trip-eta-text">${etaText || 'Calcul...'}</div>
+            </div>
+            ${distText ? `<div class="trip-dist-sub">${distText}</div>` : ''}
+          </div>
+          <div class="trip-dist-sub" style="margin-top:6px;">🚐 Teddy est en route vers toi</div>
+        </div>
+      </div>
+    `;
+    tripLeafletMap = L.map('trip-leaflet-map', { zoomControl: false, attributionControl: false }).setView([trip.barberLat, trip.barberLng], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(tripLeafletMap);
+    const vanIcon = L.divIcon({ html: '🚐', className: 'trip-emoji-icon', iconSize: [30, 30] });
+    tripBarberMarker = L.marker([trip.barberLat, trip.barberLng], { icon: vanIcon }).addTo(tripLeafletMap);
+    if (trip.homeLat != null && trip.homeLng != null) {
+      const homeIcon = L.divIcon({ html: '📍', className: 'trip-emoji-icon', iconSize: [26, 26] });
+      tripHomeMarker = L.marker([trip.homeLat, trip.homeLng], { icon: homeIcon }).addTo(tripLeafletMap);
+      tripLeafletMap.fitBounds([[trip.barberLat, trip.barberLng], [trip.homeLat, trip.homeLng]], { padding: [30, 30] });
+    }
+  } else {
+    tripBarberMarker.setLatLng([trip.barberLat, trip.barberLng]);
+    const etaEl = document.getElementById('trip-eta-text');
+    if (etaEl && etaText) etaEl.textContent = etaText;
   }
 }
 
