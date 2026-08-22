@@ -228,6 +228,24 @@ async function initDb() {
   await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS commune TEXT;`);
   await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS commune_surcharge NUMERIC NOT NULL DEFAULT 0;`);
 
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS address_lat NUMERIC;`);
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS address_lng NUMERIC;`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS live_trip (
+      id TEXT PRIMARY KEY,
+      active BOOLEAN NOT NULL DEFAULT false,
+      client_id TEXT REFERENCES clients(id),
+      lat NUMERIC,
+      lng NUMERIC,
+      updated_at TIMESTAMP
+    );
+  `);
+  const tripCount = await get('SELECT COUNT(*) as c FROM live_trip');
+  if (parseInt(tripCount.c, 10) === 0) {
+    await run('INSERT INTO live_trip (id, active) VALUES (?,?)', ['default', false]);
+  }
+
   const communeCount = await get('SELECT COUNT(*) as c FROM communes');
   if (parseInt(communeCount.c, 10) === 0) {
     await run('INSERT INTO communes (id, name, surcharge, sort_order) VALUES (?,?,?,?)', [uuidv4(), 'Liège', 0, 1]);
