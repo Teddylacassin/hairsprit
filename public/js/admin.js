@@ -106,6 +106,7 @@ const TABS = [
   { id: 'today', label: "Aujourd'hui" },
   { id: 'bookings', label: 'Réservations' },
   { id: 'orders', label: 'Boutique' },
+  { id: 'accounting', label: 'Comptabilité' },
   { id: 'stats', label: 'Statistiques' },
 ];
 
@@ -152,6 +153,7 @@ function renderTabContent() {
   if (state.tab === 'today') return renderTodayTab(main);
   if (state.tab === 'bookings') return renderBookingsTab(main);
   if (state.tab === 'orders') return renderOrdersTab(main);
+  if (state.tab === 'accounting') return renderAccountingTab(main);
   if (state.tab === 'stats') return renderStatsTab(main);
 }
 
@@ -1476,6 +1478,93 @@ async function renderOrdersTab(main) {
       } catch (err) { alert(err.message); }
     };
   });
+}
+
+/* ---------------- ACCOUNTING TAB (Comptabilité) ---------------- */
+const EXPENSE_CAT_LABELS = { essence: 'Essence / déplacement', produits: 'Produits', materiel: 'Matériel', assurance: 'Assurance', autre: 'Autre' };
+
+function shiftMonth(monthStr, delta) {
+  const [y, m] = monthStr.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function monthLabel(monthStr) {
+  const [y, m] = monthStr.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+}
+
+async function renderAccountingTab(main) {
+  if (!state.accountingMonth) {
+    const now = new Date();
+    state.accountingMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }
+  main.innerHTML = `<div class="loading-spin"></div>`;
+  let data;
+  try {
+    const res = await api(`/accounting?month=${state.accountingMonth}`);
+    data = res;
+  } catch (e) {
+    main.innerHTML = `<div class="error-msg">${e.message}</div>`;
+    return;
+  }
+
+  main.innerHTML = `
+    <div class="section-title" style="margin-top:0;">Comptabilité</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;background:var(--panel);border:1px solid var(--ligne);border-radius:10px;padding:10px 14px;margin-bottom:14px;">
+      <button id="acct-prev" style="background:none;border:none;color:var(--blanc);font-size:18px;cursor:pointer;padding:4px 10px;">‹</button>
+      <span style="font-weight:600;text-transform:capitalize;">${monthLabel(data.month)}</span>
+      <button id="acct-next" style="background:none;border:none;color:var(--blanc);font-size:18px;cursor:pointer;padding:4px 10px;">›</button>
+    </div>
+
+    <div class="section-title">Compte de résultat</div>
+    <div class="scanner-box" style="max-width:100%;">
+      <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13.5px;font-weight:600;">
+        <span>Revenus</span><span></span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:12.5px;color:var(--argent-clair);">
+        <span>Prestations coiffure</span><span style="font-family:var(--font-mono);">${data.revenue.prestations.toFixed(2)}€</span>
+      </div>
+      ${data.revenue.espece > 0 ? `<div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:12.5px;color:var(--argent-clair);"><span>💵 Espèce (hors app)</span><span style="font-family:var(--font-mono);">${data.revenue.espece.toFixed(2)}€</span></div>` : ''}
+      ${data.revenue.virement > 0 ? `<div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:12.5px;color:var(--argent-clair);"><span>💳 Virement (hors app)</span><span style="font-family:var(--font-mono);">${data.revenue.virement.toFixed(2)}€</span></div>` : ''}
+      <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13.5px;font-weight:600;">
+        <span>Total revenus</span><span style="font-family:var(--font-mono);color:var(--succes);">${data.revenue.total.toFixed(2)}€</span>
+      </div>
+      <div style="height:1px;background:var(--ligne);margin:10px 0;"></div>
+      <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13.5px;font-weight:600;">
+        <span>Dépenses</span><span></span>
+      </div>
+      ${data.expenses.byCategory.map(c => `
+        <div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:12.5px;color:var(--argent-clair);">
+          <span>${c.category}</span><span style="font-family:var(--font-mono);">${c.total.toFixed(2)}€</span>
+        </div>
+      `).join('')}
+      ${data.expenses.byCategory.length === 0 ? `<div style="padding:5px 0 5px 14px;font-size:12.5px;color:var(--argent);">Aucune dépense ce mois-ci</div>` : ''}
+      <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13.5px;font-weight:600;">
+        <span>Total dépenses</span><span style="font-family:var(--font-mono);color:var(--danger);">${data.expenses.total.toFixed(2)}€</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;border-top:1px solid var(--ligne);margin-top:6px;padding-top:10px;font-weight:700;font-size:15px;">
+        <span>Résultat net</span><span style="font-family:var(--font-mono);font-size:20px;color:${data.net >= 0 ? 'var(--succes)' : 'var(--danger)'};">${data.net.toFixed(2)}€</span>
+      </div>
+    </div>
+
+    <div class="section-title">Journal comptable</div>
+    ${data.entries.length === 0 ? `<div class="empty-state">Aucun mouvement ce mois-ci.</div>` : ''}
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      ${data.entries.map(e => `
+        <div style="background:var(--panel);border:1px solid var(--ligne);border-radius:10px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;">
+          <div style="display:flex;flex-direction:column;gap:2px;">
+            <div style="font-size:13px;font-weight:500;">${e.label}</div>
+            <div style="font-size:11px;color:var(--argent);">${new Date(e.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}</div>
+            <div style="display:inline-block;font-size:10px;border:1px solid var(--ligne);border-radius:20px;padding:2px 8px;color:var(--argent-clair);margin-top:3px;width:fit-content;">${e.category}</div>
+          </div>
+          <div style="font-family:var(--font-mono);font-weight:600;font-size:14px;color:${e.type === 'revenu' ? 'var(--succes)' : 'var(--danger)'};">${e.type === 'revenu' ? '+' : '−'}${e.amount.toFixed(2)}€</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  main.querySelector('#acct-prev').onclick = () => { state.accountingMonth = shiftMonth(state.accountingMonth, -1); renderAccountingTab(main); };
+  main.querySelector('#acct-next').onclick = () => { state.accountingMonth = shiftMonth(state.accountingMonth, 1); renderAccountingTab(main); };
 }
 
 /* ---------------- STATS TAB ---------------- */
