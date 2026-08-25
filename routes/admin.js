@@ -861,4 +861,109 @@ router.get('/trip/status', requireAdminAuth, async (req, res) => {
   });
 });
 
+// GET /api/admin/accounting?month=YYYY-MM -> compte de résultat + journal comptable du mois
+router.get('/accounting', requireAdminAuth, async (req, res) => {
+  const monthParam = req.query.month; // format 'YYYY-MM', par défaut le mois en cours
+  const monthFilterSql = monthParam
+    ? `date_trunc('month', %COL%) = to_date(?, 'YYYY-MM')`
+    : `date_trunc('month', %COL%) = date_trunc('month', now())`;
+  const monthParams = monthParam ? [monthParam] : [];
+
+  // Revenus : prestations confirmées (avec suppléments éventuels)
+  const bookingRows = await db.all(
+    `SELECT b.slot_datetime AS d, c.prenom, c.nom, s.name AS service_name,
+            (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
+     FROM bookings b
+     JOIN clients c ON c.id = b.client_id
+     JOIN services s ON s.id = b.service_id
+     WHERE b.status = 'confirme' AND ${monthFilterSql.replace('%COL%', 'b.slot_datetime')}
+     ORDER BY b.slot_datetime DESC`,
+    monthParams
+  );
+
+  // Revenus manuels (espèce / virement)
+  const manualRows = await db.all(
+    `SELECT entry_date AS d, amount, note, payment_method
+     FROM manual_revenue
+     WHERE ${monthFilterSql.replace('%COL%', 'entry_date')}
+     ORDER BY entry_date DESC`,
+    monthParams
+  );
+
+  // Dépenses
+  const expenseRows = await db.all(
+    `SELECT expense_date AS d, amount, category, note
+     FROM expenses
+     WHERE ${monthFilterSql.replace('%COL%', 'expense_date')}
+     ORDER BY expense_date DESC`,
+    monthParams
+  );
+
+  const EXPENSE_LABELS = { essence: 'Essence / déplacement', produits: 'Produits', materiel: 'Matériel', assurance: 'Assurance', autre: 'Autre' };
+
+  const entries = [];
+
+  let prestationsTotal = 0;
+  bookingRows.forEach(b => {
+    const amount = parseFloat(b.amount);
+    prestationsTotal += amount;
+    entries.push({
+      date: b.d,
+      label: `Prestation — ${b.prenom} ${b.nom}${b.service_name ? ` (${b.service_name})` : ''}`,
+      category: 'Prestations coiffure',
+      type: 'revenu',
+      amount,
+    });
+  });
+
+  let especeTotal = 0;
+  let virementTotal = 0;
+  manualRows.forEach(m => {
+    const amount = parseFloat(m.amount);
+    if (m.payment_method === 'virement') virementTotal += amount; else especeTotal += amount;
+    entries.push({
+      date: m.d,
+      label: `CA manuel${m.note ? ` — ${m.note}` : ''}`,
+      category: m.payment_method === 'virement' ? '💳 Virement' : '💵 Espèce',
+      type: 'revenu',
+      amount,
+    });
+  });
+
+  const expensesByCategory = {};
+  let expensesTotal = 0;
+  expenseRows.forEach(e => {
+    const amount = parseFloat(e.amount);
+    expensesTotal += amount;
+    expensesByCategory[e.category] = (expensesByCategory[e.category] || 0) + amount;
+    entries.push({
+      date: e.d,
+      label: e.note || (EXPENSE_LABELS[e.category] || e.category),
+      category: EXPENSE_LABELS[e.category] || e.category,
+      type: 'depense',
+      amount,
+    });
+  });
+
+  entries.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const revenueTotal = prestationsTotal + especeTotal + virementTotal;
+
+  res.json({
+    month: monthParam || new Date().toISOString().slice(0, 7),
+    revenue: {
+      prestations: prestationsTotal,
+      espece: especeTotal,
+      virement: virementTotal,
+      total: revenueTotal,
+    },
+    expenses: {
+      byCategory: Object.entries(expensesByCategory).map(([cat, total]) => ({ category: EXPENSE_LABELS[cat] || cat, total })),
+      total: expensesTotal,
+    },
+    net: revenueTotal - expensesTotal,
+    entries,
+  });
+});
+
 module.exports = router;
