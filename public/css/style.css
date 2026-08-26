@@ -268,7 +268,7 @@ a { color: inherit; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ---------------- LOYALTY CARD ---------------- */
+/* ---------------- LOYALTY CARD (style gaming) ---------------- */
 .card-stage {
   perspective: 1200px;
   margin: 10px 0 14px;
@@ -287,17 +287,49 @@ a { color: inherit; }
 .card-face {
   position: absolute;
   inset: 0;
-  border-radius: 18px;
   backface-visibility: hidden;
   padding: 20px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
 }
 .card-face.front {
-  background: radial-gradient(circle at 15% 0%, rgba(127, 216, 143, 0.22) 0%, transparent 55%), linear-gradient(135deg, #1a1a1d, #0b0b0c);
-  border: 1px solid #2f4a38;
+  background: linear-gradient(160deg, #0d1018 0%, #060709 70%);
+  border: 1px solid rgba(0, 229, 255, 0.28);
+  clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 22px 100%, 0 calc(100% - 22px));
+}
+.card-face.front::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: linear-gradient(rgba(0, 229, 255, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 229, 255, 0.035) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.card-face.front::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, #00e5ff, transparent);
+  opacity: 0.6;
+  animation: scan-move 3.5s linear infinite;
+}
+@keyframes scan-move { 0% { top: 0%; } 100% { top: 100%; } }
+.card-corner-tag {
+  position: absolute;
+  top: 12px; right: -30px;
+  transform: rotate(45deg);
+  background: linear-gradient(135deg, #ff2ec4, #9d4dff);
+  font-family: 'Orbitron', sans-serif;
+  font-size: 7px;
+  letter-spacing: 1.5px;
+  padding: 2px 38px;
+  color: #fff;
+  font-weight: 700;
+  z-index: 3;
 }
 .card-face.back {
   background: var(--blanc);
@@ -306,6 +338,7 @@ a { color: inherit; }
   align-items: center;
   justify-content: center;
   gap: 12px;
+  border-radius: 18px;
 }
 .card-face.back img {
   width: 140px;
@@ -321,42 +354,72 @@ a { color: inherit; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  position: relative;
+  z-index: 2;
+}
+.brand-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-header-icon {
+  width: 22px;
+  height: 22px;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  filter: brightness(0) invert(1) drop-shadow(0 0 5px rgba(0, 229, 255, 0.7));
+  flex-shrink: 0;
 }
 .card-logo {
-  font-family: var(--font-display);
-  font-size: 20px;
-  letter-spacing: 1px;
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: 2px;
+  color: #fff;
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.6);
 }
 .card-chip {
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
-  background: var(--panel-2);
+  width: 28px;
+  height: 28px;
+  background: rgba(0, 229, 255, 0.08);
+  border: 1px solid rgba(0, 229, 255, 0.35);
+  clip-path: polygon(5px 0, 100% 0, 100% 100%, 0 100%, 0 5px);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--argent-clair);
 }
 .card-name {
+  font-family: 'Rajdhani', sans-serif;
   font-size: 13px;
-  color: #d8d8d8;
+  font-weight: 600;
+  color: #c7d0e0;
   margin-top: 2px;
+  position: relative;
+  z-index: 2;
 }
 .card-bottom-row {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
+  position: relative;
+  z-index: 2;
 }
 .card-points-label {
-  font-size: 9px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 8px;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 1.5px;
   color: var(--argent);
 }
 .card-points-value {
-  font-family: var(--font-display);
-  font-size: 28px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 24px;
+  font-weight: 800;
   line-height: 1;
+  color: #fff;
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
 }
 .card-hint {
   font-size: 10px;
@@ -370,32 +433,33 @@ a { color: inherit; }
   color: var(--argent);
   font-family: var(--font-mono);
   margin-bottom: 18px;
+  letter-spacing: 1px;
 }
 
-/* ---------------- CAMIONNETTE HAIRSPRIT (progression fidélité) ---------------- */
+/* ---------------- CAMIONNETTE HAIRSPRIT (progression fidélité, style gaming) ---------------- */
 .path-wrap {
   position: relative;
   height: 38px;
   margin: 4px 0 2px;
+  z-index: 2;
 }
 .path-line {
   position: absolute;
   top: 22px;
   left: 4px;
   right: 4px;
-  height: 3px;
-  border-radius: 3px;
-  background-image: linear-gradient(to right, #444 50%, transparent 0%);
-  background-size: 8px 3px;
+  height: 2px;
+  background-image: linear-gradient(to right, rgba(0, 229, 255, 0.3) 50%, transparent 0%);
+  background-size: 8px 2px;
   background-repeat: repeat-x;
 }
 .path-progress {
   position: absolute;
   top: 22px;
   left: 4px;
-  height: 3px;
-  border-radius: 3px;
-  background: linear-gradient(90deg, #e0716b, #e8b84b, #7fd88f);
+  height: 2px;
+  background: linear-gradient(90deg, #9d4dff, #00e5ff);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.8);
   transition: width 0.8s cubic-bezier(0.34, 1.2, 0.64, 1);
 }
 .milestone {
@@ -403,22 +467,22 @@ a { color: inherit; }
   top: 18px;
   width: 9px;
   height: 9px;
-  border-radius: 50%;
-  background: var(--noir);
-  border: 2px solid var(--ligne);
-  transform: translateX(-50%);
+  background: #050609;
+  border: 2px solid rgba(0, 229, 255, 0.3);
+  transform: translateX(-50%) rotate(45deg);
   transition: border-color 0.4s ease, background 0.4s ease;
 }
 .milestone.reached {
-  background: var(--succes);
-  border-color: var(--succes);
-  box-shadow: 0 0 6px rgba(127, 216, 143, 0.5);
+  background: #00e5ff;
+  border-color: #00e5ff;
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.9);
 }
 .house {
   position: absolute;
-  top: 2px;
-  right: -4px;
+  top: 0px;
+  right: -6px;
   font-size: 18px;
+  filter: drop-shadow(0 0 6px rgba(157, 77, 255, 0.8));
 }
 .puff {
   position: absolute;
@@ -426,7 +490,7 @@ a { color: inherit; }
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--argent);
+  background: #00e5ff;
   opacity: 0;
 }
 .puff1 { animation: puff-pop 0.7s ease-out infinite; }
@@ -441,6 +505,7 @@ a { color: inherit; }
   width: 28px;
   height: 20px;
   transform: translateX(-50%);
+  filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.7));
 }
 .van.driving { animation: shake 0.25s linear infinite; }
 @keyframes shake {
@@ -455,9 +520,9 @@ a { color: inherit; }
   0%, 100% { transform: translateX(-50%) translateY(0) rotate(0deg); }
   50% { transform: translateX(-50%) translateY(-6px) rotate(-3deg); }
 }
-.van-body { fill: #e0524a; }
+.van-body { fill: #ff2ec4; }
 .happy .van-body { animation: van-color 0.9s ease-in-out infinite; }
-@keyframes van-color { 0%, 100% { fill: #7fd88f; } 50% { fill: #e8b84b; } }
+@keyframes van-color { 0%, 100% { fill: #00e5ff; } 50% { fill: #9d4dff; } }
 .sparkle {
   position: absolute;
   font-size: 12px;
@@ -471,7 +536,7 @@ a { color: inherit; }
 .honk {
   position: absolute;
   font-size: 11px;
-  color: var(--succes);
+  color: #00e5ff;
   font-weight: 700;
   animation: honk-float 1s ease-out infinite;
   opacity: 0;
@@ -484,25 +549,31 @@ a { color: inherit; }
   display: flex;
   align-items: center;
   margin: 0 0 2px;
+  position: relative;
+  z-index: 2;
 }
 .pole-info {
   flex: 1;
 }
 .pole-pts {
-  font-family: var(--font-mono);
-  font-size: 20px;
-  font-weight: 600;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 19px;
+  font-weight: 800;
   line-height: 1;
+  color: #fff;
 }
 .pole-total {
+  font-family: 'Rajdhani', sans-serif;
   font-size: 11px;
   color: var(--argent);
-  font-weight: 400;
+  font-weight: 600;
 }
 .pole-caption {
+  font-family: 'Rajdhani', sans-serif;
   font-size: 11.5px;
-  color: var(--succes);
+  color: #00e5ff;
   margin-top: 4px;
+  font-weight: 600;
 }
 .pole-sub {
   font-size: 10px;
@@ -519,6 +590,8 @@ a { color: inherit; }
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+  position: relative;
+  z-index: 2;
 }
 .verse-caption::-webkit-scrollbar {
   display: none;
@@ -527,6 +600,7 @@ a { color: inherit; }
   .van.driving, .van.happy, .wheel, .happy .van-body, .puff, .sparkle, .honk {
     animation: none;
   }
+  .card-face.front::after { animation: none; }
 }
 
 /* ---------------- REWARDS ---------------- */
