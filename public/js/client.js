@@ -705,8 +705,21 @@ function renderDashboardTabContent() {
       return `<div class="milestone ${reached ? 'reached' : ''}" style="left:${pos}%;" title="${t} points"></div>`;
     }).join('');
     const urgentMinutesLeft = state.urgent && state.urgent.active ? Math.max(0, Math.round((new Date(state.urgent.expiresAt) - new Date()) / 60000)) : 0;
+    const reviewPrompt = getReviewPrompt();
     zone.innerHTML = `
       <div id="trip-section"></div>
+      ${reviewPrompt ? `
+        <div class="review-banner" id="review-banner">
+          <div class="review-banner-text">
+            <div class="review-banner-title">⭐ Merci pour ta visite !</div>
+            <div class="review-banner-sub">Un petit avis Google nous aiderait beaucoup</div>
+          </div>
+          <div class="review-banner-actions">
+            <a href="https://g.page/r/CRa_yp8Pnc2EEBM/review" target="_blank" rel="noopener" class="review-banner-btn" id="review-banner-yes">Laisser un avis</a>
+            <button class="review-banner-dismiss" id="review-banner-dismiss" title="Ne plus afficher pour cette visite">✕</button>
+          </div>
+        </div>
+      ` : ''}
       ${state.urgent && state.urgent.active ? `
         <div class="urgent-banner" id="urgent-banner">
           <div class="urgent-dot"></div>
@@ -793,6 +806,10 @@ function renderDashboardTabContent() {
     document.getElementById('open-style-profile-btn').onclick = openStyleProfileSheet;
     const urgentBookBtn = document.getElementById('urgent-book-btn');
     if (urgentBookBtn) urgentBookBtn.onclick = openUrgentBookingSheet;
+    const reviewDismissBtn = document.getElementById('review-banner-dismiss');
+    if (reviewDismissBtn) reviewDismissBtn.onclick = () => dismissReviewPrompt();
+    const reviewYesBtn = document.getElementById('review-banner-yes');
+    if (reviewYesBtn) reviewYesBtn.onclick = () => dismissReviewPrompt();
     renderTripSection();
     startTripPolling();
     return;
@@ -995,6 +1012,35 @@ async function renderTripSection() {
     const etaEl = document.getElementById('trip-eta-text');
     if (etaEl && etaText) etaEl.textContent = etaText;
   }
+}
+
+/* ---------------- DEMANDE D'AVIS AUTOMATIQUE (bannière) ---------------- */
+// Se déclenche si la dernière visite avec point date d'entre 12h et 4 jours,
+// et que le client ne l'a pas déjà fermée pour cette visite précise.
+function getReviewPrompt() {
+  if (!state.client || !state.history || state.history.length === 0) return null;
+  const lastVisit = state.history.find(v => v.points_added > 0);
+  if (!lastVisit) return null;
+
+  const key = `hairsprit_review_dismissed_${state.client.id}`;
+  const dismissedVisitId = localStorage.getItem(key);
+  if (dismissedVisitId === lastVisit.id) return null;
+
+  let dateStr = lastVisit.created_at;
+  if (typeof dateStr === 'string' && dateStr.includes(' ') && !dateStr.includes('T')) {
+    dateStr = dateStr.replace(' ', 'T') + 'Z';
+  }
+  const hoursAgo = (Date.now() - new Date(dateStr).getTime()) / 3600000;
+  if (hoursAgo < 12 || hoursAgo > 96) return null;
+
+  return lastVisit;
+}
+
+function dismissReviewPrompt() {
+  const prompt = getReviewPrompt();
+  if (!prompt || !state.client) return;
+  localStorage.setItem(`hairsprit_review_dismissed_${state.client.id}`, prompt.id);
+  renderDashboardTabContent();
 }
 
 function formatDate(iso) {
