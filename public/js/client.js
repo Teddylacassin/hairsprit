@@ -720,8 +720,12 @@ function renderDashboardTabContent() {
       <div class="card-stage">
         <div class="loyalty-card ${state.cardFlipped ? 'flipped' : ''}" id="loyalty-card">
           <div class="card-face front">
+            <div class="card-corner-tag">LVL UP</div>
             <div class="card-top-row">
-              <span class="card-logo">HAIRSPRIT</span>
+              <div class="brand-group">
+                <div class="card-header-icon" style="background-image:url('/icon-mono.png');"></div>
+                <span class="card-logo">HAIRSPRIT</span>
+              </div>
               <div class="card-chip"><img src="/logo.jpg" alt="" class="card-chip-logo" /></div>
             </div>
             <div>
