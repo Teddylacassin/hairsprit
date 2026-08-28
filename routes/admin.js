@@ -956,6 +956,11 @@ router.get('/accounting', requireAdminAuth, async (req, res) => {
   entries.sort((a, b) => new Date(b.date) - new Date(a.date));
 
   const revenueTotal = prestationsTotal + especeTotal + virementTotal;
+  const netResult = revenueTotal - expensesTotal;
+
+  const settingsRow = await db.get('SELECT setaside_percent FROM accounting_settings WHERE id = ?', ['default']);
+  const setasidePercent = settingsRow ? parseFloat(settingsRow.setaside_percent) : 25;
+  const setasideAmount = Math.max(0, netResult * (setasidePercent / 100));
 
   res.json({
     month: monthParam || new Date().toISOString().slice(0, 7),
@@ -969,8 +974,75 @@ router.get('/accounting', requireAdminAuth, async (req, res) => {
       byCategory: Object.entries(expensesByCategory).map(([cat, total]) => ({ category: EXPENSE_LABELS[cat] || cat, total })),
       total: expensesTotal,
     },
-    net: revenueTotal - expensesTotal,
+    net: netResult,
+    setasidePercent,
+    setasideAmount,
+    availableAfterSetaside: netResult - setasideAmount,
     entries,
+  });
+});
+
+// MISE DE CÔTÉ / OBJECTIF D'ÉPARGNE
+router.get('/accounting-settings', requireAdminAuth, async (req, res) => {
+  const settings = await db.get('SELECT * FROM accounting_settings WHERE id = ?', ['default']);
+  res.json({
+    setasidePercent: settings ? parseFloat(settings.setaside_percent) : 25,
+    goalAmount: settings && settings.goal_amount != null ? parseFloat(settings.goal_amount) : null,
+    goalLabel: settings ? settings.goal_label : null,
+    goalStartDate: settings ? settings.goal_start_date : null,
+  });
+});
+
+router.put('/accounting-settings', requireAdminAuth, async (req, res) => {
+  const { setaside_percent, goal_amount, goal_label, goal_start_date } = req.body;
+  const existing = await db.get('SELECT * FROM accounting_settings WHERE id = ?', ['default']);
+  await db.run(
+    'UPDATE accounting_settings SET setaside_percent = ?, goal_amount = ?, goal_label = ?, goal_start_date = ? WHERE id = ?',
+    [
+      setaside_percent !== undefined ? Math.max(0, Math.min(100, parseFloat(setaside_percent) || 0)) : existing.setaside_percent,
+      goal_amount !== undefined ? ((goal_amount === '' || goal_amount === null) ? null : parseFloat(goal_amount)) : existing.goal_amount,
+      goal_label !== undefined ? ((goal_label || '').trim() || null) : existing.goal_label,
+      goal_start_date !== undefined ? (goal_start_date || null) : existing.goal_start_date,
+      'default',
+    ]
+  );
+  res.json({ ok: true });
+});
+
+// GET /api/admin/accounting-goal -> progression de l'objectif d'épargne (cumul automatique depuis la date de départ)
+router.get('/accounting-goal', requireAdminAuth, async (req, res) => {
+  const settings = await db.get('SELECT * FROM accounting_settings WHERE id = ?', ['default']);
+  if (!settings || settings.goal_amount == null || !settings.goal_start_date) {
+    return res.json({ hasGoal: false });
+  }
+  const startDate = settings.goal_start_date;
+  const percent = parseFloat(settings.setaside_percent);
+
+  const revenueRow = await db.get(`
+    WITH combined AS (
+      SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
+      FROM bookings b JOIN services s ON s.id = b.service_id
+      WHERE b.status = 'confirme'
+      UNION ALL
+      SELECT entry_date AS rev_date, amount FROM manual_revenue
+    )
+    SELECT COALESCE(SUM(amount),0) as total FROM combined WHERE rev_date >= ?
+  `, [startDate]);
+  const expensesRow = await db.get(`SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE expense_date >= ?`, [startDate]);
+
+  const netSinceStart = parseFloat(revenueRow.total) - parseFloat(expensesRow.total);
+  const cumulativeSetAside = Math.max(0, netSinceStart * (percent / 100));
+  const goalAmount = parseFloat(settings.goal_amount);
+  const pct = goalAmount > 0 ? Math.min(100, (cumulativeSetAside / goalAmount) * 100) : 0;
+
+  res.json({
+    hasGoal: true,
+    goalLabel: settings.goal_label,
+    goalAmount,
+    goalStartDate: startDate,
+    cumulativeSetAside,
+    pct,
+    reached: cumulativeSetAside >= goalAmount,
   });
 });
 
