@@ -1568,6 +1568,74 @@ async function renderAccountingTab(main) {
 }
 
 /* ---------------- STATS TAB ---------------- */
+// ---------------- GRAPHIQUES SVG (statistiques) ----------------
+function lineChartSvg(points, labels, opts) {
+  opts = opts || {};
+  const width = 600, height = 160, padding = 24;
+  const max = Math.max(1, ...points);
+  const stepX = points.length > 1 ? (width - padding * 2) / (points.length - 1) : 0;
+  const coords = points.map((v, i) => {
+    const x = padding + i * stepX;
+    const y = height - padding - (v / max) * (height - padding * 2 - 10);
+    return [x, y];
+  });
+  const linePath = coords.map((c, i) => (i === 0 ? 'M' : 'L') + c[0].toFixed(1) + ',' + c[1].toFixed(1)).join(' ');
+  const areaPath = linePath + ` L${coords[coords.length - 1][0].toFixed(1)},${height - padding} L${coords[0][0].toFixed(1)},${height - padding} Z`;
+  const color = opts.color || '#00e5ff';
+  const dots = coords.map((c, i) => `<circle cx="${c[0].toFixed(1)}" cy="${c[1].toFixed(1)}" r="3" fill="${color}"><title>${labels[i]}: ${points[i].toFixed(2)}</title></circle>`).join('');
+  const labelEls = labels.map((l, i) => {
+    if (labels.length > 8 && i % 2 !== 0) return '';
+    return `<text x="${coords[i][0].toFixed(1)}" y="${height - 4}" font-size="8" fill="var(--argent, #9a9a9e)" text-anchor="middle">${l}</text>`;
+  }).join('');
+  return `
+    <svg viewBox="0 0 ${width} ${height}" style="width:100%;height:150px;overflow:visible;">
+      <defs>
+        <linearGradient id="grad-${opts.id || 'a'}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${color}" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <path d="${areaPath}" fill="url(#grad-${opts.id || 'a'})" stroke="none"/>
+      <path d="${linePath}" fill="none" stroke="${color}" stroke-width="2"/>
+      ${dots}
+      ${labelEls}
+    </svg>
+  `;
+}
+
+function pieChartSvg(data) {
+  const total = data.reduce((sum, d) => sum + d.total, 0);
+  if (total <= 0) return '';
+  const colors = ['#00e5ff', '#ff2ec4', '#9d4dff', '#e8c463', '#7fd88f', '#e0716b'];
+  const cx = 60, cy = 60, r = 55;
+  let angle = -90;
+  const slices = data.map((d, i) => {
+    const fraction = d.total / total;
+    const sweep = fraction * 360;
+    const startRad = (angle * Math.PI) / 180;
+    const endRad = ((angle + sweep) * Math.PI) / 180;
+    const x1 = cx + r * Math.cos(startRad), y1 = cy + r * Math.sin(startRad);
+    const x2 = cx + r * Math.cos(endRad), y2 = cy + r * Math.sin(endRad);
+    const largeArc = sweep > 180 ? 1 : 0;
+    const path = `M${cx},${cy} L${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r} 0 ${largeArc} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z`;
+    angle += sweep;
+    return `<path d="${path}" fill="${colors[i % colors.length]}"><title>${d.category}: ${d.total.toFixed(2)}€</title></path>`;
+  }).join('');
+  const legend = data.map((d, i) => `
+    <div style="display:flex;align-items:center;gap:6px;font-size:12px;">
+      <span style="width:9px;height:9px;border-radius:2px;background:${colors[i % colors.length]};display:inline-block;"></span>
+      <span>${EXPENSE_CATEGORY_LABELS[d.category] || d.category}</span>
+      <span style="color:var(--argent);font-family:var(--font-mono);margin-left:auto;">${d.total.toFixed(2)}€</span>
+    </div>
+  `).join('');
+  return `
+    <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;">
+      <svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0;">${slices}</svg>
+      <div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:140px;">${legend}</div>
+    </div>
+  `;
+}
+
 const EXPENSE_CATEGORY_LABELS = {
   essence: 'Essence',
   produits: 'Produits',
@@ -1633,50 +1701,62 @@ async function renderStatsTab(main) {
       </div>
     </div>
 
-    <div class="section-title">Ajouter une dépense (essence, produits, matériel...)</div>
+    <div class="section-title">Ajouter un mouvement</div>
     <div class="scanner-box" style="max-width:100%;">
+      <div style="display:flex;gap:8px;margin-bottom:14px;">
+        <button type="button" class="btn ${(state.statsQuickMode || 'expense') === 'expense' ? 'btn-primary' : 'btn-outline'}" id="quick-mode-expense" style="flex:1;">💸 Dépense</button>
+        <button type="button" class="btn ${state.statsQuickMode === 'revenue' ? 'btn-primary' : 'btn-outline'}" id="quick-mode-revenue" style="flex:1;">💰 Encaissement</button>
+      </div>
       <div style="display:flex;gap:10px;">
         <div class="field" style="flex:1;">
           <label>Date</label>
-          <input type="date" id="expense-date" value="${new Date().toISOString().slice(0, 10)}" />
+          <input type="date" id="quick-date" value="${new Date().toISOString().slice(0, 10)}" />
         </div>
         <div class="field" style="flex:1;">
           <label>Montant (€)</label>
-          <input type="number" id="expense-amount" min="0" step="0.5" placeholder="0.00" />
+          <input type="number" id="quick-amount" min="0" step="0.5" placeholder="0.00" />
         </div>
       </div>
-      <div class="field">
-        <label>Catégorie</label>
-        <select id="expense-category" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:12px 14px;border-radius:10px;font-size:14px;">
-          <option value="essence">Essence / déplacement</option>
-          <option value="produits">Produits</option>
-          <option value="materiel">Matériel</option>
-          <option value="assurance">Assurance</option>
-          <option value="autre">Autre</option>
-        </select>
-      </div>
+      ${(state.statsQuickMode || 'expense') === 'expense' ? `
+        <div class="field">
+          <label>Catégorie</label>
+          <select id="quick-category" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:12px 14px;border-radius:10px;font-size:14px;">
+            <option value="essence">Essence / déplacement</option>
+            <option value="produits">Produits</option>
+            <option value="materiel">Matériel</option>
+            <option value="assurance">Assurance</option>
+            <option value="autre">Autre</option>
+          </select>
+        </div>
+      ` : `
+        <div class="field">
+          <label>Mode de paiement</label>
+          <select id="quick-payment-method" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:12px 14px;border-radius:10px;font-size:14px;">
+            <option value="espece">💵 Espèce</option>
+            <option value="virement">💳 Virement</option>
+          </select>
+        </div>
+      `}
       <div class="field">
         <label>Note (optionnel)</label>
-        <input type="text" id="expense-note" placeholder="Ex : plein d'essence" />
+        <input type="text" id="quick-note" placeholder="${(state.statsQuickMode || 'expense') === 'expense' ? "Ex : plein d'essence" : 'Ex : 4 coupes'}" />
       </div>
-      <button class="btn btn-outline" id="add-expense-btn">Ajouter la dépense</button>
-      <div id="expense-msg"></div>
-      ${s.recentExpenses && s.recentExpenses.length > 0 ? `
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
-          ${s.recentExpenses.map(ex => `
-            <div class="history-item" data-expense-id="${ex.id}">
-              <div>
-                <div>${parseFloat(ex.amount).toFixed(2)}€ <span class="pill" style="margin-left:6px;">${EXPENSE_CATEGORY_LABELS[ex.category] || ex.category}</span></div>
-                <div class="date">${new Date(ex.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}${ex.note ? ` · ${ex.note}` : ''}</div>
-              </div>
-              <button class="btn btn-danger delete-expense-btn" style="width:auto;padding:8px 12px;font-size:12px;">Supprimer</button>
-            </div>
-          `).join('')}
-        </div>
-      ` : ''}
+      <button class="btn btn-primary" id="quick-add-btn">${(state.statsQuickMode || 'expense') === 'expense' ? 'Ajouter la dépense' : "Ajouter l'encaissement"}</button>
+      <div id="quick-msg"></div>
     </div>
 
     ${s.monthlyBreakdown && s.monthlyBreakdown.length > 0 ? `
+      <div class="section-title">Évolution du CA (12 mois)</div>
+      <div class="scanner-box" style="max-width:100%;">
+        ${lineChartSvg(
+          s.monthlyBreakdown.map(m => m.total),
+          s.monthlyBreakdown.map(m => {
+            const [yr, mo] = m.mois.split('-');
+            return new Date(parseInt(yr, 10), parseInt(mo, 10) - 1, 1).toLocaleDateString('fr-FR', { month: 'short' });
+          }),
+          { color: '#00e5ff', id: 'revenue' }
+        )}
+      </div>
       <div class="section-title">Historique mensuel</div>
       <div style="display:flex;flex-direction:column;gap:6px;">
         ${s.monthlyBreakdown.slice().reverse().map(m => {
@@ -1692,30 +1772,28 @@ async function renderStatsTab(main) {
       </div>
     ` : ''}
 
-    <div class="section-title">Ajouter du CA manuel (clients hors app)</div>
+    <div class="section-title">Détail des dépenses</div>
     <div class="scanner-box" style="max-width:100%;">
-      <div class="field">
-        <label>Date</label>
-        <input type="date" id="manual-revenue-date" value="${new Date().toISOString().slice(0, 10)}" style="max-width:220px;" />
-      </div>
-      <div style="display:flex;gap:10px;">
-        <div class="field" style="flex:1;">
-          <label>Espèce (€)</label>
-          <input type="number" id="manual-revenue-espece" min="0" step="0.5" placeholder="0.00" />
+      ${s.expensesByCategory && s.expensesByCategory.length > 0 ? pieChartSvg(s.expensesByCategory) : `<div class="empty-state">Aucune dépense ce mois-ci.</div>`}
+      ${s.recentExpenses && s.recentExpenses.length > 0 ? `
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
+          ${s.recentExpenses.map(ex => `
+            <div class="history-item" data-expense-id="${ex.id}">
+              <div>
+                <div>${parseFloat(ex.amount).toFixed(2)}€ <span class="pill" style="margin-left:6px;">${EXPENSE_CATEGORY_LABELS[ex.category] || ex.category}</span></div>
+                <div class="date">${new Date(ex.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}${ex.note ? ` · ${ex.note}` : ''}</div>
+              </div>
+              <button class="btn btn-danger delete-expense-btn" style="width:auto;padding:8px 12px;font-size:12px;">Supprimer</button>
+            </div>
+          `).join('')}
         </div>
-        <div class="field" style="flex:1;">
-          <label>Virement (€)</label>
-          <input type="number" id="manual-revenue-virement" min="0" step="0.5" placeholder="0.00" />
-        </div>
-      </div>
-      <div class="field" style="margin-top:0;">
-        <label>Note (optionnel)</label>
-        <input type="text" id="manual-revenue-note" placeholder="Ex : 4 coupes" />
-      </div>
-      <button class="btn btn-outline" id="add-manual-revenue-btn" style="margin-top:6px;">Ajouter au CA du jour</button>
-      <div id="manual-revenue-msg"></div>
+      ` : ''}
+    </div>
+
+    <div class="section-title">Détail des encaissements manuels</div>
+    <div class="scanner-box" style="max-width:100%;">
       ${s.paymentBreakdown && s.paymentBreakdown.length > 0 ? `
-        <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
           ${s.paymentBreakdown.map(p => `
             <div style="flex:1;min-width:120px;background:var(--panel-2);border:1px solid var(--ligne);border-radius:10px;padding:10px 12px;">
               <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;color:var(--argent);">${p.method === 'virement' ? 'Virement' : 'Espèce'} (ce mois)</div>
@@ -1725,7 +1803,7 @@ async function renderStatsTab(main) {
         </div>
       ` : ''}
       ${s.recentManual && s.recentManual.length > 0 ? `
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
+        <div style="display:flex;flex-direction:column;gap:8px;">
           ${s.recentManual.map(m => `
             <div class="history-item" data-manual-id="${m.id}">
               <div>
@@ -1736,7 +1814,7 @@ async function renderStatsTab(main) {
             </div>
           `).join('')}
         </div>
-      ` : ''}
+      ` : `<div class="empty-state">Aucun encaissement manuel ce mois-ci.</div>`}
     </div>
 
     <div class="section-title">Vue d'ensemble</div>
@@ -1760,11 +1838,13 @@ async function renderStatsTab(main) {
     ` : ''}
 
     <div class="section-title">Visites — 30 derniers jours</div>
-    <div class="table-wrap" style="padding:20px;display:flex;align-items:flex-end;gap:3px;height:140px;overflow-x:auto;">
-      ${s.last30.length === 0 ? `<div class="empty-state" style="width:100%;">Pas encore de visite enregistrée.</div>` :
-        s.last30.map(d => `
-          <div title="${d.jour} — ${d.visites} visite(s)" style="flex:1;min-width:6px;background:var(--argent-clair);border-radius:3px 3px 0 0;height:${Math.max(6, (d.visites / maxVisits) * 100)}%;"></div>
-        `).join('')}
+    <div class="scanner-box" style="max-width:100%;">
+      ${s.last30.length === 0 ? `<div class="empty-state">Pas encore de visite enregistrée.</div>` :
+        lineChartSvg(
+          s.last30.map(d => d.visites),
+          s.last30.map(d => new Date(d.jour).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'UTC' })),
+          { color: '#ff2ec4', id: 'visits' }
+        )}
     </div>
 
     <div class="section-title">Top clients fidèles</div>
@@ -1779,27 +1859,40 @@ async function renderStatsTab(main) {
     </div>
   `;
 
-  main.querySelector('#add-expense-btn').onclick = async () => {
-    const btn = main.querySelector('#add-expense-btn');
-    const date = main.querySelector('#expense-date').value;
-    const amount = main.querySelector('#expense-amount').value;
-    const category = main.querySelector('#expense-category').value;
-    const note = main.querySelector('#expense-note').value;
-    if (!date || !amount) {
-      main.querySelector('#expense-msg').innerHTML = `<div class="error-msg">Date et montant requis.</div>`;
-      return;
-    }
-    btn.disabled = true;
-    btn.textContent = 'Ajout...';
-    try {
-      await api('/expenses', { method: 'POST', body: JSON.stringify({ date, amount, category, note }) });
-      renderStatsTab(main);
-    } catch (err) {
-      main.querySelector('#expense-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
-      btn.disabled = false;
-      btn.textContent = 'Ajouter la dépense';
-    }
-  };
+  const modeExpenseBtn = main.querySelector('#quick-mode-expense');
+  const modeRevenueBtn = main.querySelector('#quick-mode-revenue');
+  if (modeExpenseBtn) modeExpenseBtn.onclick = () => { state.statsQuickMode = 'expense'; renderStatsTab(main); };
+  if (modeRevenueBtn) modeRevenueBtn.onclick = () => { state.statsQuickMode = 'revenue'; renderStatsTab(main); };
+
+  const quickAddBtn = main.querySelector('#quick-add-btn');
+  if (quickAddBtn) {
+    quickAddBtn.onclick = async () => {
+      const mode = state.statsQuickMode || 'expense';
+      const date = main.querySelector('#quick-date').value;
+      const amount = main.querySelector('#quick-amount').value;
+      const note = main.querySelector('#quick-note').value;
+      if (!date || !amount) {
+        main.querySelector('#quick-msg').innerHTML = `<div class="error-msg">Date et montant requis.</div>`;
+        return;
+      }
+      quickAddBtn.disabled = true;
+      quickAddBtn.textContent = 'Ajout...';
+      try {
+        if (mode === 'expense') {
+          const category = main.querySelector('#quick-category').value;
+          await api('/expenses', { method: 'POST', body: JSON.stringify({ date, amount, category, note }) });
+        } else {
+          const payment_method = main.querySelector('#quick-payment-method').value;
+          await api('/manual-revenue', { method: 'POST', body: JSON.stringify({ date, amount, note, payment_method }) });
+        }
+        renderStatsTab(main);
+      } catch (err) {
+        main.querySelector('#quick-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
+        quickAddBtn.disabled = false;
+        quickAddBtn.textContent = mode === 'expense' ? 'Ajouter la dépense' : "Ajouter l'encaissement";
+      }
+    };
+  }
 
   main.querySelectorAll('.delete-expense-btn').forEach(btn => {
     btn.onclick = async () => {
@@ -1818,33 +1911,6 @@ async function renderStatsTab(main) {
       }
     };
   });
-
-  main.querySelector('#add-manual-revenue-btn').onclick = async () => {
-    const btn = main.querySelector('#add-manual-revenue-btn');
-    const date = main.querySelector('#manual-revenue-date').value;
-    const espece = main.querySelector('#manual-revenue-espece').value;
-    const virement = main.querySelector('#manual-revenue-virement').value;
-    const note = main.querySelector('#manual-revenue-note').value;
-    if (!date || (!espece && !virement)) {
-      main.querySelector('#manual-revenue-msg').innerHTML = `<div class="error-msg">Date et au moins un montant (espèce ou virement) requis.</div>`;
-      return;
-    }
-    btn.disabled = true;
-    btn.textContent = 'Ajout...';
-    try {
-      if (espece && parseFloat(espece) > 0) {
-        await api('/manual-revenue', { method: 'POST', body: JSON.stringify({ date, amount: espece, note, payment_method: 'espece' }) });
-      }
-      if (virement && parseFloat(virement) > 0) {
-        await api('/manual-revenue', { method: 'POST', body: JSON.stringify({ date, amount: virement, note, payment_method: 'virement' }) });
-      }
-      renderStatsTab(main);
-    } catch (err) {
-      main.querySelector('#manual-revenue-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
-      btn.disabled = false;
-      btn.textContent = 'Ajouter au CA du jour';
-    }
-  };
 
   main.querySelectorAll('.delete-manual-btn').forEach(btn => {
     btn.onclick = async () => {
