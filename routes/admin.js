@@ -1059,10 +1059,10 @@ router.post('/bank/sync', requireAdminAuth, async (req, res) => {
       const transactions = await listPontoTransactions(account.id);
       for (const tx of transactions) {
         const attrs = tx.attributes || {};
-        const existing = await db.get('SELECT id FROM bank_transactions WHERE ponto_id = ?', [tx.id]);
-        if (existing) continue;
-        await db.run(
-          'INSERT INTO bank_transactions (id, ponto_id, value_date, amount, description, counterpart_name) VALUES (?,?,?,?,?,?)',
+        const result = await db.pool.query(
+          `INSERT INTO bank_transactions (id, ponto_id, value_date, amount, description, counterpart_name)
+           VALUES ($1,$2,$3,$4,$5,$6)
+           ON CONFLICT (ponto_id) DO NOTHING`,
           [
             uuidv4(),
             tx.id,
@@ -1072,7 +1072,7 @@ router.post('/bank/sync', requireAdminAuth, async (req, res) => {
             attrs.counterpartName || null,
           ]
         );
-        newCount++;
+        if (result.rowCount > 0) newCount++;
       }
     }
     res.json({ ok: true, newTransactions: newCount });
@@ -1134,7 +1134,7 @@ router.put('/bank/transactions/:id', requireAdminAuth, async (req, res) => {
 
 // DIAGNOSTIC TEMPORAIRE : teste la connexion sortante vers plusieurs adresses
 // pour comprendre si le blocage est général au serveur, ou spécifique à Ponto/Ibanity.
-router.get('/network-test', async (req, res) => {
+router.get('/network-test', requireAdminAuth, async (req, res) => {
   const targets = [
     { name: 'Google', url: 'https://www.google.com' },
     { name: 'GitHub API', url: 'https://api.github.com' },
