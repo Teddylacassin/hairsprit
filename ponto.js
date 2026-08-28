@@ -25,14 +25,20 @@ async function getPontoAccessToken() {
   }
 
   const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-  const res = await fetch(`${PONTO_BASE_URL}/oauth2/token`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Basic ${basicAuth}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: 'grant_type=client_credentials',
-  });
+  let res;
+  try {
+    res = await fetch(`${PONTO_BASE_URL}/oauth2/token`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${basicAuth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'grant_type=client_credentials',
+    });
+  } catch (e) {
+    const cause = e.cause ? ` — détail : ${e.cause.code || e.cause.message || JSON.stringify(e.cause)}` : '';
+    throw new Error(`Échec réseau vers ${PONTO_BASE_URL}/oauth2/token${cause}`);
+  }
 
   if (!res.ok) {
     const errText = await res.text();
