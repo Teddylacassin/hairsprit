@@ -260,6 +260,22 @@ async function initDb() {
     await run('INSERT INTO accounting_settings (id, setaside_percent) VALUES (?,?)', ['default', 25]);
   }
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bank_transactions (
+      id TEXT PRIMARY KEY,
+      ponto_id TEXT UNIQUE NOT NULL,
+      value_date DATE,
+      amount NUMERIC NOT NULL,
+      description TEXT,
+      counterpart_name TEXT,
+      reviewed BOOLEAN NOT NULL DEFAULT false,
+      linked_expense_id TEXT,
+      linked_revenue_id TEXT,
+      ignored BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMP NOT NULL DEFAULT now()
+    );
+  `);
+
   const communeCount = await get('SELECT COUNT(*) as c FROM communes');
   if (parseInt(communeCount.c, 10) === 0) {
     await run('INSERT INTO communes (id, name, surcharge, sort_order) VALUES (?,?,?,?)', [uuidv4(), 'Liège', 0, 1]);
