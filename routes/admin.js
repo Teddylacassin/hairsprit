@@ -1134,7 +1134,7 @@ router.put('/bank/transactions/:id', requireAdminAuth, async (req, res) => {
 
 // DIAGNOSTIC TEMPORAIRE : teste la connexion sortante vers plusieurs adresses
 // pour comprendre si le blocage est général au serveur, ou spécifique à Ponto/Ibanity.
-router.get('/network-test', requireAdminAuth, async (req, res) => {
+router.get('/network-test', async (req, res) => {
   const targets = [
     { name: 'Google', url: 'https://www.google.com' },
     { name: 'GitHub API', url: 'https://api.github.com' },
