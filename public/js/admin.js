@@ -107,6 +107,7 @@ const TABS = [
   { id: 'bookings', label: 'Réservations' },
   { id: 'orders', label: 'Boutique' },
   { id: 'accounting', label: 'Comptabilité' },
+  { id: 'bank', label: 'Banque' },
   { id: 'stats', label: 'Statistiques' },
 ];
 
@@ -154,6 +155,7 @@ function renderTabContent() {
   if (state.tab === 'bookings') return renderBookingsTab(main);
   if (state.tab === 'orders') return renderOrdersTab(main);
   if (state.tab === 'accounting') return renderAccountingTab(main);
+  if (state.tab === 'bank') return renderBankTab(main);
   if (state.tab === 'stats') return renderStatsTab(main);
 }
 
@@ -1630,6 +1632,114 @@ async function renderAccountingTab(main) {
       } catch (err) { alert(err.message); }
     };
   }
+}
+
+/* ---------------- BANK TAB (synchronisation Ponto/Belfius) ---------------- */
+async function renderBankTab(main) {
+  main.innerHTML = `<div class="loading-spin"></div>`;
+  let transactions;
+  try {
+    const res = await api('/bank/transactions');
+    transactions = res.transactions;
+  } catch (e) {
+    main.innerHTML = `<div class="error-msg">${e.message}</div>`;
+    return;
+  }
+
+  main.innerHTML = `
+    <div class="section-title" style="margin-top:0;">Banque (Belfius via Ponto)</div>
+    <div class="scanner-box" style="max-width:100%;">
+      <div class="sub" style="color:var(--argent);font-size:12.5px;margin-bottom:12px;">
+        Synchronise ton compte Belfius pour récupérer automatiquement les nouvelles transactions,
+        puis trie-les en dépense ou recette d'un coup.
+      </div>
+      <button class="btn btn-primary" id="sync-bank-btn">🔄 Synchroniser maintenant</button>
+      <div id="sync-msg"></div>
+    </div>
+
+    <div class="section-title">À trier (${transactions.length})</div>
+    ${transactions.length === 0 ? `<div class="empty-state">Aucune transaction en attente. Clique sur "Synchroniser" pour aller en chercher.</div>` : ''}
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      ${transactions.map(tx => `
+        <div class="reward-admin-row" data-tx-id="${tx.id}" style="flex-direction:column;align-items:stretch;gap:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+            <div>
+              <div style="font-weight:600;font-size:14px;">${tx.description || tx.counterpartName || 'Transaction sans libellé'}</div>
+              <div style="color:var(--argent);font-size:12px;">${tx.date ? new Date(tx.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—'}${tx.counterpartName ? ` · ${tx.counterpartName}` : ''}</div>
+            </div>
+            <div style="font-family:var(--font-mono);font-weight:700;font-size:15px;color:${tx.amount >= 0 ? 'var(--succes)' : 'var(--danger)'};">${tx.amount >= 0 ? '+' : ''}${tx.amount.toFixed(2)}€</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${tx.amount < 0 ? `
+              <select class="tx-category-select" style="flex:1;min-width:130px;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:8px 10px;border-radius:8px;font-size:12.5px;">
+                <option value="essence">Essence / déplacement</option>
+                <option value="produits">Produits</option>
+                <option value="materiel">Matériel</option>
+                <option value="assurance">Assurance</option>
+                <option value="autre">Autre</option>
+              </select>
+              <button class="btn btn-outline tx-mark-expense-btn" style="width:auto;padding:8px 12px;font-size:12px;">💸 C'est une dépense</button>
+            ` : `
+              <button class="btn btn-outline tx-mark-revenue-btn" style="width:auto;padding:8px 12px;font-size:12px;">💰 C'est une recette</button>
+            `}
+            <button class="btn btn-ghost tx-ignore-btn" style="width:auto;padding:8px 12px;font-size:12px;">Ignorer</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  main.querySelector('#sync-bank-btn').onclick = async () => {
+    const btn = main.querySelector('#sync-bank-btn');
+    btn.disabled = true;
+    btn.textContent = 'Synchronisation...';
+    try {
+      const res = await api('/bank/sync', { method: 'POST' });
+      main.querySelector('#sync-msg').innerHTML = `<div class="success-msg">✓ ${res.newTransactions} nouvelle(s) transaction(s) récupérée(s).</div>`;
+      renderBankTab(main);
+    } catch (err) {
+      main.querySelector('#sync-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
+      btn.disabled = false;
+      btn.textContent = '🔄 Synchroniser maintenant';
+    }
+  };
+
+  main.querySelectorAll('.tx-mark-expense-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('[data-tx-id]');
+      const category = row.querySelector('.tx-category-select').value;
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        await api(`/bank/transactions/${row.dataset.txId}`, { method: 'PUT', body: JSON.stringify({ action: 'expense', category }) });
+        renderBankTab(main);
+      } catch (err) { alert(err.message); btn.disabled = false; btn.textContent = "💸 C'est une dépense"; }
+    };
+  });
+
+  main.querySelectorAll('.tx-mark-revenue-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('[data-tx-id]');
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        await api(`/bank/transactions/${row.dataset.txId}`, { method: 'PUT', body: JSON.stringify({ action: 'revenue' }) });
+        renderBankTab(main);
+      } catch (err) { alert(err.message); btn.disabled = false; btn.textContent = "💰 C'est une recette"; }
+    };
+  });
+
+  main.querySelectorAll('.tx-ignore-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('[data-tx-id]');
+      if (!confirm('Ignorer cette transaction (elle ne sera plus proposée) ?')) return;
+      btn.disabled = true;
+      try {
+        await api(`/bank/transactions/${row.dataset.txId}`, { method: 'PUT', body: JSON.stringify({ action: 'ignore' }) });
+        renderBankTab(main);
+      } catch (err) { alert(err.message); btn.disabled = false; }
+    };
+  });
 }
 
 /* ---------------- STATS TAB ---------------- */
