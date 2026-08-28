@@ -1132,4 +1132,27 @@ router.put('/bank/transactions/:id', requireAdminAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// DIAGNOSTIC TEMPORAIRE : teste la connexion sortante vers plusieurs adresses
+// pour comprendre si le blocage est général au serveur, ou spécifique à Ponto/Ibanity.
+router.get('/network-test', requireAdminAuth, async (req, res) => {
+  const targets = [
+    { name: 'Google', url: 'https://www.google.com' },
+    { name: 'GitHub API', url: 'https://api.github.com' },
+    { name: 'Resend (déjà utilisé, marche normalement)', url: 'https://api.resend.com' },
+    { name: 'Ibanity (Ponto)', url: 'https://api.ibanity.com' },
+    { name: 'Ponto (myponto)', url: 'https://api.myponto.com' },
+  ];
+  const results = [];
+  for (const t of targets) {
+    try {
+      const start = Date.now();
+      const r = await fetch(t.url, { method: 'GET' });
+      results.push({ name: t.name, url: t.url, ok: true, status: r.status, ms: Date.now() - start });
+    } catch (e) {
+      results.push({ name: t.name, url: t.url, ok: false, error: e.message, cause: e.cause ? (e.cause.code || String(e.cause)) : null });
+    }
+  }
+  res.json({ results });
+});
+
 module.exports = router;
