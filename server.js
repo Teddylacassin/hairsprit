@@ -2,6 +2,11 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const dns = require('dns');
+
+// Corrige un souci fréquent sur les serveurs Docker/VPS (comme Hetzner) où une
+// mauvaise configuration IPv6 fait planter les connexions sortantes (ex: vers l'API Ponto)
+dns.setDefaultResultOrder('ipv4first');
 
 const { initDb } = require('./db');
 const { startReminderScheduler } = require('./reminders');
