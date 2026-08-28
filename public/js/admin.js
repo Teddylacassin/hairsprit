@@ -1650,15 +1650,16 @@ async function renderBankTab(main) {
     <div class="section-title" style="margin-top:0;">Banque (Belfius via Ponto)</div>
     <div class="scanner-box" style="max-width:100%;">
       <div class="sub" style="color:var(--argent);font-size:12.5px;margin-bottom:12px;">
-        Synchronise ton compte Belfius pour récupérer automatiquement les nouvelles transactions,
-        puis trie-les en dépense ou recette d'un coup.
+        Une synchronisation automatique se fait chaque jour. Chaque transaction est classée
+        automatiquement (négatif = dépense, positif = recette) et compte directement dans
+        ta comptabilité. Ajuste la catégorie ou supprime une entrée si besoin ci-dessous.
       </div>
       <button class="btn btn-primary" id="sync-bank-btn">🔄 Synchroniser maintenant</button>
       <div id="sync-msg"></div>
     </div>
 
-    <div class="section-title">À trier (${transactions.length})</div>
-    ${transactions.length === 0 ? `<div class="empty-state">Aucune transaction en attente. Clique sur "Synchroniser" pour aller en chercher.</div>` : ''}
+    <div class="section-title">Transactions récentes (${transactions.length})</div>
+    ${transactions.length === 0 ? `<div class="empty-state">Aucune transaction pour le moment. Clique sur "Synchroniser" pour aller en chercher.</div>` : ''}
     <div style="display:flex;flex-direction:column;gap:10px;">
       ${transactions.map(tx => `
         <div class="reward-admin-row" data-tx-id="${tx.id}" style="flex-direction:column;align-items:stretch;gap:8px;">
@@ -1669,20 +1670,21 @@ async function renderBankTab(main) {
             </div>
             <div style="font-family:var(--font-mono);font-weight:700;font-size:15px;color:${tx.amount >= 0 ? 'var(--succes)' : 'var(--danger)'};">${tx.amount >= 0 ? '+' : ''}${tx.amount.toFixed(2)}€</div>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            ${tx.amount < 0 ? `
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            ${tx.linkedExpenseId ? `
+              <span class="pill">💸 Dépense</span>
               <select class="tx-category-select" style="flex:1;min-width:130px;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:8px 10px;border-radius:8px;font-size:12.5px;">
+                <option value="autre">Autre</option>
                 <option value="essence">Essence / déplacement</option>
                 <option value="produits">Produits</option>
                 <option value="materiel">Matériel</option>
                 <option value="assurance">Assurance</option>
-                <option value="autre">Autre</option>
               </select>
-              <button class="btn btn-outline tx-mark-expense-btn" style="width:auto;padding:8px 12px;font-size:12px;">💸 C'est une dépense</button>
+              <button class="btn btn-outline tx-save-category-btn" style="width:auto;padding:8px 12px;font-size:12px;">Enregistrer</button>
             ` : `
-              <button class="btn btn-outline tx-mark-revenue-btn" style="width:auto;padding:8px 12px;font-size:12px;">💰 C'est une recette</button>
+              <span class="pill">💰 Recette</span>
             `}
-            <button class="btn btn-ghost tx-ignore-btn" style="width:auto;padding:8px 12px;font-size:12px;">Ignorer</button>
+            <button class="btn btn-ghost tx-delete-btn" style="width:auto;padding:8px 12px;font-size:12px;margin-left:auto;">Supprimer</button>
           </div>
         </div>
       `).join('')}
@@ -1695,7 +1697,7 @@ async function renderBankTab(main) {
     btn.textContent = 'Synchronisation...';
     try {
       const res = await api('/bank/sync', { method: 'POST' });
-      main.querySelector('#sync-msg').innerHTML = `<div class="success-msg">✓ ${res.newTransactions} nouvelle(s) transaction(s) récupérée(s).</div>`;
+      main.querySelector('#sync-msg').innerHTML = `<div class="success-msg">✓ ${res.newTransactions} nouvelle(s) transaction(s) récupérée(s) et classée(s).</div>`;
       renderBankTab(main);
     } catch (err) {
       main.querySelector('#sync-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
@@ -1704,38 +1706,27 @@ async function renderBankTab(main) {
     }
   };
 
-  main.querySelectorAll('.tx-mark-expense-btn').forEach(btn => {
+  main.querySelectorAll('.tx-save-category-btn').forEach(btn => {
     btn.onclick = async () => {
       const row = btn.closest('[data-tx-id]');
       const category = row.querySelector('.tx-category-select').value;
       btn.disabled = true;
       btn.textContent = '...';
       try {
-        await api(`/bank/transactions/${row.dataset.txId}`, { method: 'PUT', body: JSON.stringify({ action: 'expense', category }) });
-        renderBankTab(main);
-      } catch (err) { alert(err.message); btn.disabled = false; btn.textContent = "💸 C'est une dépense"; }
+        await api(`/bank/transactions/${row.dataset.txId}/category`, { method: 'PUT', body: JSON.stringify({ category }) });
+        btn.textContent = '✓ Enregistré';
+        setTimeout(() => { btn.disabled = false; btn.textContent = 'Enregistrer'; }, 1200);
+      } catch (err) { alert(err.message); btn.disabled = false; btn.textContent = 'Enregistrer'; }
     };
   });
 
-  main.querySelectorAll('.tx-mark-revenue-btn').forEach(btn => {
+  main.querySelectorAll('.tx-delete-btn').forEach(btn => {
     btn.onclick = async () => {
       const row = btn.closest('[data-tx-id]');
-      btn.disabled = true;
-      btn.textContent = '...';
-      try {
-        await api(`/bank/transactions/${row.dataset.txId}`, { method: 'PUT', body: JSON.stringify({ action: 'revenue' }) });
-        renderBankTab(main);
-      } catch (err) { alert(err.message); btn.disabled = false; btn.textContent = "💰 C'est une recette"; }
-    };
-  });
-
-  main.querySelectorAll('.tx-ignore-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const row = btn.closest('[data-tx-id]');
-      if (!confirm('Ignorer cette transaction (elle ne sera plus proposée) ?')) return;
+      if (!confirm('Retirer cette transaction de ta comptabilité (ex: erreur, virement interne) ?')) return;
       btn.disabled = true;
       try {
-        await api(`/bank/transactions/${row.dataset.txId}`, { method: 'PUT', body: JSON.stringify({ action: 'ignore' }) });
+        await api(`/bank/transactions/${row.dataset.txId}`, { method: 'DELETE' });
         renderBankTab(main);
       } catch (err) { alert(err.message); btn.disabled = false; }
     };
