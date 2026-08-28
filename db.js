@@ -246,6 +246,20 @@ async function initDb() {
     await run('INSERT INTO live_trip (id, active) VALUES (?,?)', ['default', false]);
   }
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS accounting_settings (
+      id TEXT PRIMARY KEY,
+      setaside_percent NUMERIC NOT NULL DEFAULT 25,
+      goal_amount NUMERIC,
+      goal_label TEXT,
+      goal_start_date DATE
+    );
+  `);
+  const accountingSettingsCount = await get('SELECT COUNT(*) as c FROM accounting_settings');
+  if (parseInt(accountingSettingsCount.c, 10) === 0) {
+    await run('INSERT INTO accounting_settings (id, setaside_percent) VALUES (?,?)', ['default', 25]);
+  }
+
   const communeCount = await get('SELECT COUNT(*) as c FROM communes');
   if (parseInt(communeCount.c, 10) === 0) {
     await run('INSERT INTO communes (id, name, surcharge, sort_order) VALUES (?,?,?,?)', [uuidv4(), 'Liège', 0, 1]);
