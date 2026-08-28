@@ -31,7 +31,7 @@ async function sendBookingAlertEmail({ client, message, slotDatetime, serviceNam
       ${client.address ? `<p><strong>Adresse :</strong> ${client.address}</p>` : ''}
       ${message ? `<p><strong>Message :</strong> ${message}</p>` : ''}
       <p style="margin-top:20px;">
-        <a href="https://hairsprit.onrender.com/admin" style="background:#111;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">
+        <a href="https://app.hairsprit.be/admin" style="background:#111;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">
           Ouvrir l'espace admin
         </a>
       </p>
@@ -91,7 +91,7 @@ async function sendDailyReminderEmail({ bookings, dateLabel }) {
       <p style="color:#555;margin-top:0;">Hairsprit · ${bookings.length} rendez-vous prévu${bookings.length > 1 ? 's' : ''}</p>
       ${rows}
       <p style="margin-top:20px;">
-        <a href="https://hairsprit.onrender.com/admin" style="background:#111;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">
+        <a href="https://app.hairsprit.be/admin" style="background:#111;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">
           Ouvrir l'espace admin
         </a>
       </p>
