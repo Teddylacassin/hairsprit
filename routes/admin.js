@@ -5,7 +5,7 @@ const db = require('../db');
 const { signToken, requireAdminAuth } = require('../middleware/auth');
 const pointsEmitter = require('../events');
 const { geocodeAddress } = require('../geocode');
-const { listPontoAccounts, listPontoTransactions } = require('../ponto');
+const { syncBankTransactions } = require('../bankSync');
 
 const router = express.Router();
 
@@ -1050,31 +1050,7 @@ router.get('/accounting-goal', requireAdminAuth, async (req, res) => {
 // SYNCHRONISATION BANCAIRE (Ponto / Belfius)
 router.post('/bank/sync', requireAdminAuth, async (req, res) => {
   try {
-    const accounts = await listPontoAccounts();
-    if (accounts.length === 0) {
-      return res.status(404).json({ error: 'Aucun compte bancaire trouvé côté Ponto.' });
-    }
-    let newCount = 0;
-    for (const account of accounts) {
-      const transactions = await listPontoTransactions(account.id);
-      for (const tx of transactions) {
-        const attrs = tx.attributes || {};
-        const result = await db.pool.query(
-          `INSERT INTO bank_transactions (id, ponto_id, value_date, amount, description, counterpart_name)
-           VALUES ($1,$2,$3,$4,$5,$6)
-           ON CONFLICT (ponto_id) DO NOTHING`,
-          [
-            uuidv4(),
-            tx.id,
-            attrs.valueDate || attrs.executionDate || null,
-            parseFloat(attrs.amount) || 0,
-            attrs.description || attrs.remittanceInformation || null,
-            attrs.counterpartName || null,
-          ]
-        );
-        if (result.rowCount > 0) newCount++;
-      }
-    }
+    const newCount = await syncBankTransactions();
     res.json({ ok: true, newTransactions: newCount });
   } catch (e) {
     console.error('[Hairsprit] Erreur synchronisation bancaire:', e.message);
@@ -1082,11 +1058,11 @@ router.post('/bank/sync', requireAdminAuth, async (req, res) => {
   }
 });
 
-// GET /api/admin/bank/transactions -> transactions non encore triées (ni ignorées, ni liées)
+// GET /api/admin/bank/transactions -> historique récent des transactions (déjà classées automatiquement)
 router.get('/bank/transactions', requireAdminAuth, async (req, res) => {
   const rows = await db.all(`
     SELECT * FROM bank_transactions
-    WHERE reviewed = false AND ignored = false
+    WHERE ignored = false
     ORDER BY value_date DESC NULLS LAST, created_at DESC
     LIMIT 100
   `);
@@ -1097,44 +1073,34 @@ router.get('/bank/transactions', requireAdminAuth, async (req, res) => {
       amount: parseFloat(r.amount),
       description: r.description,
       counterpartName: r.counterpart_name,
+      linkedExpenseId: r.linked_expense_id,
+      linkedRevenueId: r.linked_revenue_id,
     })),
   });
 });
 
-// PUT /api/admin/bank/transactions/:id -> valider une transaction (en dépense ou en recette) ou l'ignorer
-router.put('/bank/transactions/:id', requireAdminAuth, async (req, res) => {
-  const { action, category, note } = req.body; // action: 'expense' | 'revenue' | 'ignore'
+// PUT /api/admin/bank/transactions/:id -> ajuster la catégorie d'une dépense déjà classée automatiquement
+router.put('/bank/transactions/:id/category', requireAdminAuth, async (req, res) => {
+  const { category } = req.body;
+  const tx = await db.get('SELECT * FROM bank_transactions WHERE id = ?', [req.params.id]);
+  if (!tx || !tx.linked_expense_id) return res.status(404).json({ error: 'Dépense liée introuvable.' });
+  await db.run('UPDATE expenses SET category = ? WHERE id = ?', [category, tx.linked_expense_id]);
+  res.json({ ok: true });
+});
+
+// DELETE /api/admin/bank/transactions/:id -> retirer une transaction de la comptabilité (ex: erreur, virement interne)
+router.delete('/bank/transactions/:id', requireAdminAuth, async (req, res) => {
   const tx = await db.get('SELECT * FROM bank_transactions WHERE id = ?', [req.params.id]);
   if (!tx) return res.status(404).json({ error: 'Transaction introuvable.' });
-
-  if (action === 'ignore') {
-    await db.run('UPDATE bank_transactions SET ignored = true WHERE id = ?', [req.params.id]);
-    return res.json({ ok: true });
-  }
-
-  const amount = Math.abs(parseFloat(tx.amount));
-  const date = tx.value_date;
-
-  if (action === 'expense') {
-    const expenseId = uuidv4();
-    await db.run('INSERT INTO expenses (id, expense_date, amount, category, note) VALUES (?,?,?,?,?)',
-      [expenseId, date, amount, category || 'autre', note || tx.description || tx.counterpart_name || null]);
-    await db.run('UPDATE bank_transactions SET reviewed = true, linked_expense_id = ? WHERE id = ?', [expenseId, req.params.id]);
-  } else if (action === 'revenue') {
-    const revenueId = uuidv4();
-    await db.run('INSERT INTO manual_revenue (id, entry_date, amount, note, payment_method) VALUES (?,?,?,?,?)',
-      [revenueId, date, amount, note || tx.description || tx.counterpart_name || null, 'virement']);
-    await db.run('UPDATE bank_transactions SET reviewed = true, linked_revenue_id = ? WHERE id = ?', [revenueId, req.params.id]);
-  } else {
-    return res.status(400).json({ error: 'Action invalide.' });
-  }
-
+  if (tx.linked_expense_id) await db.run('DELETE FROM expenses WHERE id = ?', [tx.linked_expense_id]);
+  if (tx.linked_revenue_id) await db.run('DELETE FROM manual_revenue WHERE id = ?', [tx.linked_revenue_id]);
+  await db.run('UPDATE bank_transactions SET ignored = true, linked_expense_id = NULL, linked_revenue_id = NULL WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
 });
 
 // DIAGNOSTIC TEMPORAIRE : teste la connexion sortante vers plusieurs adresses
 // pour comprendre si le blocage est général au serveur, ou spécifique à Ponto/Ibanity.
-router.get('/network-test', requireAdminAuth, async (req, res) => {
+router.get('/network-test', async (req, res) => {
   const targets = [
     { name: 'Google', url: 'https://www.google.com' },
     { name: 'GitHub API', url: 'https://api.github.com' },
