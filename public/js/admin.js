@@ -1499,10 +1499,14 @@ async function renderAccountingTab(main) {
     state.accountingMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   }
   main.innerHTML = `<div class="loading-spin"></div>`;
-  let data;
+  let data, goal;
   try {
-    const res = await api(`/accounting?month=${state.accountingMonth}`);
-    data = res;
+    const [accountingRes, goalRes] = await Promise.all([
+      api(`/accounting?month=${state.accountingMonth}`),
+      api('/accounting-goal'),
+    ]);
+    data = accountingRes;
+    goal = goalRes;
   } catch (e) {
     main.innerHTML = `<div class="error-msg">${e.message}</div>`;
     return;
@@ -1547,6 +1551,42 @@ async function renderAccountingTab(main) {
       </div>
     </div>
 
+    <div class="section-title">💰 À mettre de côté (${data.setasidePercent}%)</div>
+    <div class="scanner-box" style="max-width:100%;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <div style="font-size:11px;color:var(--argent);">Cotisations, impôts... (pourcentage réglable)</div>
+          <div style="font-family:var(--font-mono);font-size:24px;font-weight:700;color:#e8c463;margin-top:4px;">${data.setasideAmount.toFixed(2)}€</div>
+        </div>
+        <button class="btn btn-outline" id="acct-edit-percent-btn" style="width:auto;padding:8px 12px;font-size:12px;">✏️ % </button>
+      </div>
+      <div style="border-top:1px solid var(--ligne);margin-top:10px;padding-top:8px;font-size:12px;color:var(--argent-clair);display:flex;justify-content:space-between;">
+        <span>Disponible après mise de côté</span>
+        <span style="font-family:var(--font-mono);color:var(--succes);">${data.availableAfterSetaside.toFixed(2)}€</span>
+      </div>
+    </div>
+
+    <div class="section-title">🎯 Objectif d'épargne</div>
+    <div class="scanner-box" style="max-width:100%;">
+      ${goal.hasGoal ? `
+        <div style="display:flex;justify-content:space-between;align-items:baseline;">
+          <div style="font-weight:600;font-size:14px;">${goal.goalLabel || 'Objectif'}</div>
+          <button class="btn btn-outline" id="acct-edit-goal-btn" style="width:auto;padding:6px 10px;font-size:11px;">Modifier</button>
+        </div>
+        <div style="margin-top:10px;background:var(--panel-2);border-radius:8px;height:10px;overflow:hidden;">
+          <div style="height:100%;width:${goal.pct.toFixed(1)}%;background:${goal.reached ? 'var(--succes)' : 'linear-gradient(90deg,#9d4dff,#00e5ff)'};transition:width 0.4s;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12.5px;">
+          <span style="font-family:var(--font-mono);color:var(--argent-clair);">${goal.cumulativeSetAside.toFixed(2)}€ / ${goal.goalAmount.toFixed(2)}€</span>
+          <span style="font-family:var(--font-mono);color:${goal.reached ? 'var(--succes)' : 'var(--argent-clair)'};">${goal.pct.toFixed(0)}%</span>
+        </div>
+        ${goal.reached ? `<div style="color:var(--succes);font-size:12.5px;margin-top:6px;">🎉 Objectif atteint !</div>` : ''}
+      ` : `
+        <div class="empty-state">Aucun objectif défini.</div>
+        <button class="btn btn-outline" id="acct-edit-goal-btn" style="margin-top:10px;">🎯 Définir un objectif</button>
+      `}
+    </div>
+
     <div class="section-title">Journal comptable</div>
     ${data.entries.length === 0 ? `<div class="empty-state">Aucun mouvement ce mois-ci.</div>` : ''}
     <div style="display:flex;flex-direction:column;gap:8px;">
@@ -1565,6 +1605,31 @@ async function renderAccountingTab(main) {
 
   main.querySelector('#acct-prev').onclick = () => { state.accountingMonth = shiftMonth(state.accountingMonth, -1); renderAccountingTab(main); };
   main.querySelector('#acct-next').onclick = () => { state.accountingMonth = shiftMonth(state.accountingMonth, 1); renderAccountingTab(main); };
+
+  main.querySelector('#acct-edit-percent-btn').onclick = async () => {
+    const newPercent = prompt('Pourcentage à mettre de côté (cotisations, impôts...) :', data.setasidePercent);
+    if (newPercent === null) return;
+    try {
+      await api('/accounting-settings', { method: 'PUT', body: JSON.stringify({ setaside_percent: newPercent }) });
+      renderAccountingTab(main);
+    } catch (err) { alert(err.message); }
+  };
+
+  const editGoalBtn = main.querySelector('#acct-edit-goal-btn');
+  if (editGoalBtn) {
+    editGoalBtn.onclick = async () => {
+      const label = prompt('Nom de l\'objectif (ex : Provision impôts 2026, Achat véhicule...) :', goal.goalLabel || '');
+      if (label === null) return;
+      const amount = prompt('Montant à atteindre (€) :', goal.goalAmount || '');
+      if (amount === null) return;
+      const startDate = prompt('Compter depuis quelle date ? (AAAA-MM-JJ)', goal.goalStartDate ? goal.goalStartDate.slice(0, 10) : new Date().toISOString().slice(0, 10));
+      if (startDate === null) return;
+      try {
+        await api('/accounting-settings', { method: 'PUT', body: JSON.stringify({ goal_label: label, goal_amount: amount, goal_start_date: startDate }) });
+        renderAccountingTab(main);
+      } catch (err) { alert(err.message); }
+    };
+  }
 }
 
 /* ---------------- STATS TAB ---------------- */
