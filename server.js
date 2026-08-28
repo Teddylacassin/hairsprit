@@ -10,6 +10,7 @@ dns.setDefaultResultOrder('ipv4first');
 
 const { initDb } = require('./db');
 const { startReminderScheduler } = require('./reminders');
+const { startBankSyncScheduler } = require('./bankSync');
 
 const clientRoutes = require('./routes/client');
 const adminRoutes = require('./routes/admin');
@@ -38,6 +39,7 @@ initDb()
       console.log(`✂️  Hairsprit Fidélité en ligne sur http://localhost:${PORT}`);
     });
     startReminderScheduler();
+    startBankSyncScheduler();
   })
   .catch((err) => {
     console.error('Erreur lors de l\'initialisation de la base de données :', err);
