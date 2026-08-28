@@ -211,7 +211,7 @@ router.get('/qrcode', requireClientAuth, async (req, res) => {
 router.get('/referral-qrcode', requireClientAuth, async (req, res) => {
   const client = await db.get('SELECT * FROM clients WHERE id = ?', [req.clientId]);
   if (!client) return res.status(404).json({ error: 'Client introuvable.' });
-  const referralUrl = `https://hairsprit.onrender.com/app?ref=${client.qr_token}`;
+  const referralUrl = `https://app.hairsprit.be/app?ref=${client.qr_token}`;
   try {
     const dataUrl = await QRCode.toDataURL(referralUrl, {
       margin: 1,
