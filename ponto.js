@@ -6,7 +6,7 @@
 // Ce module utilise la structure standard d'une API Ibanity/Ponto. Un premier test réel
 // sera nécessaire pour confirmer/ajuster ces adresses si la connexion échoue.
 
-const PONTO_BASE_URL = 'https://api.ibanity.com/ponto-connect';
+const PONTO_BASE_URL = 'https://api.myponto.com';
 
 let cachedToken = null;
 let cachedTokenExpiry = 0;
