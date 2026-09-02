@@ -1,9 +1,11 @@
-// Envoie une alerte email via l'API Resend (https://resend.com) à chaque nouvelle demande de réservation.
-// Nécessite les variables d'environnement RESEND_API_KEY et NOTIFY_EMAIL sur Render.
-// Sans domaine vérifié sur Resend, l'envoi ne fonctionne QUE vers l'email du compte Resend
-// (avec l'expéditeur par défaut onboarding@resend.dev) — ce qui convient parfaitement ici,
-// puisque c'est justement Teddy qui doit recevoir l'alerte.
+// Envoie des emails via l'API Resend (https://resend.com).
+// Domaine vérifié : mail.hairsprit.be — les emails partent maintenant vers n'importe quel
+// destinataire (clients compris), plus seulement vers l'adresse du compte Resend.
+// Nécessite RESEND_API_KEY sur le serveur.
 
+const FROM_ADDRESS = 'Hairsprit <contact@mail.hairsprit.be>';
+
+// Alerte email à Teddy à chaque nouvelle demande de réservation.
 async function sendBookingAlertEmail({ client, message, slotDatetime, serviceName, peopleCount, bookingDetails }) {
   const apiKey = process.env.RESEND_API_KEY;
   const toEmail = process.env.NOTIFY_EMAIL;
@@ -41,12 +43,9 @@ async function sendBookingAlertEmail({ client, message, slotDatetime, serviceNam
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: 'Hairsprit <onboarding@resend.dev>',
+        from: FROM_ADDRESS,
         to: [toEmail],
         subject: `Nouvelle réservation : ${client.prenom} ${client.nom}`,
         html,
@@ -61,8 +60,7 @@ async function sendBookingAlertEmail({ client, message, slotDatetime, serviceNam
   }
 }
 
-// Envoie un récap quotidien (chaque matin) des RDV confirmés du lendemain,
-// pour que Teddy puisse appeler/textoter les clients en amont pour éviter les oublis.
+// Envoie un récap quotidien (chaque matin) des RDV confirmés du lendemain à Teddy.
 async function sendDailyReminderEmail({ bookings, dateLabel }) {
   const apiKey = process.env.RESEND_API_KEY;
   const toEmail = process.env.NOTIFY_EMAIL;
@@ -101,12 +99,9 @@ async function sendDailyReminderEmail({ bookings, dateLabel }) {
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: 'Hairsprit <onboarding@resend.dev>',
+        from: FROM_ADDRESS,
         to: [toEmail],
         subject: `Rappel : ${bookings.length} RDV demain (${dateLabel})`,
         html,
@@ -121,4 +116,80 @@ async function sendDailyReminderEmail({ bookings, dateLabel }) {
   }
 }
 
-module.exports = { sendBookingAlertEmail, sendDailyReminderEmail };
+// Alerte au client quand Teddy démarre le trajet vers chez lui.
+async function sendDepartureAlertEmail({ client }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey || !client.email) return;
+
+  const html = `
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
+      <h2 style="margin-bottom:4px;">🚐 Teddy est en route !</h2>
+      <p style="color:#555;">Ta coupe approche — Teddy vient de partir pour venir chez toi. Suis sa position en direct sur ta carte de fidélité dans l'app.</p>
+      <p style="margin-top:20px;">
+        <a href="https://app.hairsprit.be/app" style="background:#111;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">
+          Voir le suivi en direct
+        </a>
+      </p>
+      <p style="color:#999;font-size:12px;margin-top:24px;">À tout de suite !<br>Teddy — Hairsprit</p>
+    </div>
+  `;
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: FROM_ADDRESS,
+        to: [client.email],
+        subject: '🚐 Teddy est en route vers chez toi !',
+        html,
+      }),
+    });
+    if (!res.ok) console.error('[Hairsprit] Erreur envoi alerte départ:', res.status, await res.text());
+  } catch (e) {
+    console.error('[Hairsprit] Erreur envoi alerte départ:', e.message);
+  }
+}
+
+// Rappel de rendez-vous envoyé au client, la veille.
+async function sendAppointmentReminderEmail({ client, booking }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey || !client.email) return false;
+
+  const dateLabel = new Date(booking.slot_datetime).toLocaleString('fr-FR', {
+    weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+    timeZone: 'Europe/Brussels',
+  });
+
+  const html = `
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
+      <h2 style="margin-bottom:4px;">Rappel de ton rendez-vous ✂️</h2>
+      <p style="color:#555;">Petit rappel : ta coupe avec Hairsprit est prévue <strong>${dateLabel}</strong>.</p>
+      ${booking.booking_details ? `<p style="color:#555;">${booking.booking_details}</p>` : ''}
+      <p style="color:#999;font-size:12px;margin-top:24px;">À bientôt !<br>Teddy — Hairsprit</p>
+    </div>
+  `;
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: FROM_ADDRESS,
+        to: [client.email],
+        subject: `Rappel : RDV ${dateLabel}`,
+        html,
+      }),
+    });
+    if (!res.ok) {
+      console.error('[Hairsprit] Erreur envoi rappel RDV:', res.status, await res.text());
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error('[Hairsprit] Erreur envoi rappel RDV:', e.message);
+    return false;
+  }
+}
+
+module.exports = { sendBookingAlertEmail, sendDailyReminderEmail, sendDepartureAlertEmail, sendAppointmentReminderEmail };
