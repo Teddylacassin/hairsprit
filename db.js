@@ -138,6 +138,7 @@ async function initDb() {
   `);
   await pool.query(`ALTER TABLE schedule_settings ADD COLUMN IF NOT EXISTS travel_buffer_minutes INTEGER NOT NULL DEFAULT 20;`);
   await pool.query(`ALTER TABLE services ADD COLUMN IF NOT EXISTS group_price NUMERIC;`);
+  await pool.query(`ALTER TABLE services ADD COLUMN IF NOT EXISTS is_wedding BOOLEAN NOT NULL DEFAULT false;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blocked_dates (
       id TEXT PRIMARY KEY,
@@ -199,6 +200,10 @@ async function initDb() {
     );
   `);
   await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS urgent_surcharge NUMERIC NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS deposit_amount NUMERIC;`);
+  await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS deposit_paid BOOLEAN NOT NULL DEFAULT false;`);
+  await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS linked_booking_id TEXT;`);
+  await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS wedding_stage TEXT;`);
   await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS is_urgent INTEGER NOT NULL DEFAULT 0;`);
 
   const urgentCount = await get('SELECT COUNT(*) as c FROM urgent_availability');
