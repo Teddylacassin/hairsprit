@@ -1066,6 +1066,81 @@ tr:last-child td { border-bottom: none; }
   padding: 4px;
 }
 
+/* ---------------- WEDDING SERVICE CARD (Formule mariage) ---------------- */
+.wedding-service-card {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(160deg, #150e15 0%, #0a0708 70%);
+  border: 1px solid rgba(255, 46, 196, 0.4);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wedding-service-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #ff2ec4, transparent);
+  opacity: 0.6;
+  animation: wedding-scan 3.5s linear infinite;
+}
+@keyframes wedding-scan {
+  0% { top: 0%; }
+  100% { top: 100%; }
+}
+.wedding-service-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: linear-gradient(135deg, #ff2ec4, #9d4dff);
+  color: #fff;
+  font-size: 8px;
+  letter-spacing: 1px;
+  padding: 4px 10px;
+  border-bottom-left-radius: 10px;
+  font-weight: 700;
+  z-index: 2;
+}
+.wedding-service-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+  z-index: 1;
+}
+.wedding-service-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.wedding-service-name {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--blanc);
+}
+.wedding-service-desc {
+  font-size: 11.5px;
+  color: var(--argent);
+  margin-top: 2px;
+}
+.wedding-service-price {
+  font-family: var(--font-mono);
+  font-size: 19px;
+  font-weight: 700;
+  color: #ff2ec4;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wedding-service-card::before { animation: none; }
+}
+
 .urgent-banner {
   background: linear-gradient(135deg, #14261a, #0b0b0c);
   border: 1px solid var(--succes);
