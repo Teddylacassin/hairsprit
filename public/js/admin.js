@@ -685,60 +685,61 @@ function openWeddingPanel(main, client) {
     }
 
     zone.innerHTML = `
-      <div class="scanner-box" style="max-width:100%;margin-top:16px;">
-        <div class="section-title" style="margin-top:0;">💍 Formule mariage — ${client.prenom} ${client.nom}</div>
+      <div class="wedding-admin-card">
+        <div class="wedding-admin-scan"></div>
+        <div class="wedding-admin-title">💍 FORMULE MARIAGE <span style="color:var(--argent-clair);font-weight:400;font-size:12px;">— ${client.prenom} ${client.nom}</span></div>
 
         <div class="field">
           <label>Quelle formule ?</label>
-          <select id="wedding-service-select" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:12px;border-radius:8px;font-size:14px;">
+          <select id="wedding-service-select" class="wedding-select">
             ${weddingServices.map(s => `<option value="${s.id}">${s.name} (${parseFloat(s.price).toFixed(2)}€)</option>`).join('')}
           </select>
         </div>
 
-        <div style="background:var(--panel-2);border:1px solid var(--ligne);border-radius:12px;padding:14px;margin-top:16px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-            <span style="background:var(--succes);color:#0b0b0c;font-weight:700;font-size:12px;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;">1</span>
-            <span style="font-weight:600;font-size:13.5px;">Rendez-vous "Essai" (coupe + taille)</span>
+        <div class="wedding-step-box cyan">
+          <div class="wedding-step-head">
+            <span class="wedding-step-num cyan">1</span>
+            <span class="wedding-step-title">RDV "ESSAI" — coupe + taille</span>
           </div>
           <div style="display:flex;gap:10px;">
             <div class="field" style="flex:1;margin-bottom:0;">
               <label>Date</label>
-              <input type="date" id="wedding-essai-date" />
+              <input type="date" id="wedding-essai-date" class="wedding-input" />
             </div>
             <div class="field" style="flex:1;margin-bottom:0;">
               <label>Heure</label>
-              <input type="time" id="wedding-essai-time" value="14:00" />
+              <input type="time" id="wedding-essai-time" class="wedding-input" value="14:00" />
             </div>
           </div>
         </div>
 
-        <div style="background:var(--panel-2);border:1px solid #ff2ec4;border-radius:12px;padding:14px;margin-top:12px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-            <span style="background:#ff2ec4;color:#fff;font-weight:700;font-size:12px;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;">2</span>
-            <span style="font-weight:600;font-size:13.5px;">Rendez-vous "Jour J" (retouches)</span>
+        <div class="wedding-step-box magenta">
+          <div class="wedding-step-head">
+            <span class="wedding-step-num magenta">2</span>
+            <span class="wedding-step-title">RDV "JOUR J" — retouches</span>
           </div>
           <div style="display:flex;gap:10px;">
             <div class="field" style="flex:1;margin-bottom:0;">
               <label>Date</label>
-              <input type="date" id="wedding-jourj-date" />
+              <input type="date" id="wedding-jourj-date" class="wedding-input" />
             </div>
             <div class="field" style="flex:1;margin-bottom:0;">
               <label>Heure</label>
-              <input type="time" id="wedding-jourj-time" value="08:00" />
+              <input type="time" id="wedding-jourj-time" class="wedding-input" value="08:00" />
             </div>
           </div>
         </div>
 
         <div class="field" style="margin-top:16px;">
           <label>Acompte demandé (€, optionnel)</label>
-          <input type="number" id="wedding-deposit" min="0" step="5" placeholder="Ex : 45" />
+          <input type="number" id="wedding-deposit" class="wedding-input" min="0" step="5" placeholder="Ex : 45" />
         </div>
         <div class="field">
           <label>Note (optionnel)</label>
-          <textarea id="wedding-message" rows="2" placeholder="Détails, style souhaité..."></textarea>
+          <textarea id="wedding-message" class="wedding-input" rows="2" placeholder="Détails, style souhaité..."></textarea>
         </div>
         <div id="wedding-error"></div>
-        <button class="btn btn-primary" id="confirm-wedding-btn">✓ Créer les 2 rendez-vous</button>
+        <button class="wedding-confirm-btn" id="confirm-wedding-btn">✓ CRÉER LES 2 RENDEZ-VOUS</button>
         <button class="btn btn-ghost" id="cancel-wedding-panel" style="margin-top:10px;">Annuler</button>
       </div>
     `;
@@ -781,7 +782,7 @@ function openWeddingPanel(main, client) {
       } catch (err) {
         zone.querySelector('#wedding-error').innerHTML = `<div class="error-msg">${err.message}</div>`;
         btn.disabled = false;
-        btn.textContent = '✓ Créer les 2 rendez-vous';
+        btn.textContent = '✓ CRÉER LES 2 RENDEZ-VOUS';
       }
     };
   }).catch(err => {
