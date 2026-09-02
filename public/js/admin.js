@@ -687,21 +687,49 @@ function openWeddingPanel(main, client) {
     zone.innerHTML = `
       <div class="scanner-box" style="max-width:100%;margin-top:16px;">
         <div class="section-title" style="margin-top:0;">💍 Formule mariage — ${client.prenom} ${client.nom}</div>
+
         <div class="field">
-          <label>Prestation</label>
-          <select id="wedding-service-select" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:10px;border-radius:8px;">
+          <label>Quelle formule ?</label>
+          <select id="wedding-service-select" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:12px;border-radius:8px;font-size:14px;">
             ${weddingServices.map(s => `<option value="${s.id}">${s.name} (${parseFloat(s.price).toFixed(2)}€)</option>`).join('')}
           </select>
         </div>
-        <div class="field">
-          <label>Date et heure — Essai (coupe + taille)</label>
-          <input type="datetime-local" id="wedding-essai-datetime" />
+
+        <div style="background:var(--panel-2);border:1px solid var(--ligne);border-radius:12px;padding:14px;margin-top:16px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+            <span style="background:var(--succes);color:#0b0b0c;font-weight:700;font-size:12px;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;">1</span>
+            <span style="font-weight:600;font-size:13.5px;">Rendez-vous "Essai" (coupe + taille)</span>
+          </div>
+          <div style="display:flex;gap:10px;">
+            <div class="field" style="flex:1;margin-bottom:0;">
+              <label>Date</label>
+              <input type="date" id="wedding-essai-date" />
+            </div>
+            <div class="field" style="flex:1;margin-bottom:0;">
+              <label>Heure</label>
+              <input type="time" id="wedding-essai-time" value="14:00" />
+            </div>
+          </div>
         </div>
-        <div class="field">
-          <label>Date et heure — Jour J (retouches)</label>
-          <input type="datetime-local" id="wedding-jourj-datetime" />
+
+        <div style="background:var(--panel-2);border:1px solid #ff2ec4;border-radius:12px;padding:14px;margin-top:12px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+            <span style="background:#ff2ec4;color:#fff;font-weight:700;font-size:12px;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;">2</span>
+            <span style="font-weight:600;font-size:13.5px;">Rendez-vous "Jour J" (retouches)</span>
+          </div>
+          <div style="display:flex;gap:10px;">
+            <div class="field" style="flex:1;margin-bottom:0;">
+              <label>Date</label>
+              <input type="date" id="wedding-jourj-date" />
+            </div>
+            <div class="field" style="flex:1;margin-bottom:0;">
+              <label>Heure</label>
+              <input type="time" id="wedding-jourj-time" value="08:00" />
+            </div>
+          </div>
         </div>
-        <div class="field">
+
+        <div class="field" style="margin-top:16px;">
           <label>Acompte demandé (€, optionnel)</label>
           <input type="number" id="wedding-deposit" min="0" step="5" placeholder="Ex : 45" />
         </div>
@@ -710,7 +738,7 @@ function openWeddingPanel(main, client) {
           <textarea id="wedding-message" rows="2" placeholder="Détails, style souhaité..."></textarea>
         </div>
         <div id="wedding-error"></div>
-        <button class="btn btn-primary" id="confirm-wedding-btn">Créer les 2 rendez-vous</button>
+        <button class="btn btn-primary" id="confirm-wedding-btn">✓ Créer les 2 rendez-vous</button>
         <button class="btn btn-ghost" id="cancel-wedding-panel" style="margin-top:10px;">Annuler</button>
       </div>
     `;
@@ -720,14 +748,21 @@ function openWeddingPanel(main, client) {
     zone.querySelector('#confirm-wedding-btn').onclick = async () => {
       const btn = zone.querySelector('#confirm-wedding-btn');
       const service_id = zone.querySelector('#wedding-service-select').value;
-      const essai_datetime = zone.querySelector('#wedding-essai-datetime').value;
-      const jour_j_datetime = zone.querySelector('#wedding-jourj-datetime').value;
+      const essaiDate = zone.querySelector('#wedding-essai-date').value;
+      const essaiTime = zone.querySelector('#wedding-essai-time').value;
+      const jourjDate = zone.querySelector('#wedding-jourj-date').value;
+      const jourjTime = zone.querySelector('#wedding-jourj-time').value;
       const deposit_amount = zone.querySelector('#wedding-deposit').value;
       const message = zone.querySelector('#wedding-message').value;
-      if (!essai_datetime || !jour_j_datetime) {
-        zone.querySelector('#wedding-error').innerHTML = `<div class="error-msg">Les deux dates sont requises.</div>`;
+
+      if (!essaiDate || !essaiTime || !jourjDate || !jourjTime) {
+        zone.querySelector('#wedding-error').innerHTML = `<div class="error-msg">Merci de remplir la date ET l'heure des 2 rendez-vous (Essai et Jour J).</div>`;
         return;
       }
+
+      const essai_datetime = `${essaiDate}T${essaiTime}:00`;
+      const jour_j_datetime = `${jourjDate}T${jourjTime}:00`;
+
       btn.disabled = true;
       btn.textContent = 'Création...';
       try {
@@ -746,7 +781,7 @@ function openWeddingPanel(main, client) {
       } catch (err) {
         zone.querySelector('#wedding-error').innerHTML = `<div class="error-msg">${err.message}</div>`;
         btn.disabled = false;
-        btn.textContent = 'Créer les 2 rendez-vous';
+        btn.textContent = '✓ Créer les 2 rendez-vous';
       }
     };
   }).catch(err => {
