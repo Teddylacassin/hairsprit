@@ -820,7 +820,19 @@ function renderDashboardTabContent() {
       <div class="section-title" style="margin-top:0;">Tarifs</div>
       ${state.services.length === 0 ? `<div class="empty-state">Aucun tarif renseigné pour le moment.</div>` : ''}
       <div style="display:flex;flex-direction:column;gap:8px;">
-        ${state.services.map(s => `
+        ${state.services.map(s => s.is_wedding ? `
+          <div class="wedding-service-card">
+            <div class="wedding-service-badge">POPULAIRE</div>
+            <div class="wedding-service-top">
+              <span class="wedding-service-icon">💍</span>
+              <div>
+                <div class="wedding-service-name">${s.name}</div>
+                ${s.description ? `<div class="wedding-service-desc">${s.description}</div>` : ''}
+              </div>
+            </div>
+            <div class="wedding-service-price">${parseFloat(s.price).toFixed(2)}€</div>
+          </div>
+        ` : `
           <div class="history-item">
             <div>
               <div>${s.name}</div>
