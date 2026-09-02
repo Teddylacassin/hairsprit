@@ -344,7 +344,7 @@ function renderClientsTableBody(main) {
     ${state.clients.length === 0 ? `<div class="empty-state">Aucun client trouvé.</div>` : ''}
     <div style="display:flex;flex-direction:column;gap:8px;">
       ${state.clients.map(c => `
-        <div class="reward-admin-row" style="justify-content:space-between;flex-wrap:wrap;gap:8px;" data-client-id="${c.id}" data-notes="${(c.admin_notes || '').replace(/"/g, '&quot;')}" data-telephone="${c.telephone}" data-address="${(c.address || '').replace(/"/g, '&quot;')}" data-prenom="${c.prenom.replace(/"/g, '&quot;')}" data-nom="${c.nom.replace(/"/g, '&quot;')}" data-created="${c.created_at}">
+        <div class="reward-admin-row" style="justify-content:space-between;flex-wrap:wrap;gap:8px;" data-client-id="${c.id}" data-notes="${(c.admin_notes || '').replace(/"/g, '&quot;')}" data-telephone="${c.telephone}" data-address="${(c.address || '').replace(/"/g, '&quot;')}" data-email="${(c.email || '').replace(/"/g, '&quot;')}" data-prenom="${c.prenom.replace(/"/g, '&quot;')}" data-nom="${c.nom.replace(/"/g, '&quot;')}" data-created="${c.created_at}">
           <div style="font-weight:600;font-size:14px;">${c.prenom} ${c.nom}</div>
           <div style="display:flex;align-items:center;gap:6px;">
             ${c.address ? `<a href="https://www.waze.com/ul?q=${encodeURIComponent(c.address)}&navigate=yes" target="_blank" rel="noopener" title="Ouvrir dans Waze" style="text-decoration:none;font-size:15px;">🚗</a>` : ''}
@@ -364,6 +364,7 @@ function renderClientsTableBody(main) {
         nom: row.dataset.nom,
         telephone: row.dataset.telephone,
         address: row.dataset.address,
+        email: row.dataset.email,
         notes: row.dataset.notes,
         created: row.dataset.created,
       });
@@ -382,6 +383,7 @@ function openClientInfoPanel(main, client) {
           ${client.address ? `<button class="copy-address-btn" data-address="${client.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button>` : ''}
         </div>
         <div><span style="color:var(--argent);">📞 Téléphone : </span>${client.telephone || '—'}</div>
+        <div><span style="color:var(--argent);">✉️ Email : </span>${client.email || '—'}</div>
         <div><span style="color:var(--argent);">🗓️ Membre depuis : </span>${formatDate(client.created)}</div>
       </div>
       <div class="field" style="margin-top:16px;">
@@ -429,13 +431,16 @@ function openClientInfoPanel(main, client) {
     if (newTel === null) return;
     const newAddr = prompt('Adresse :', client.address || '');
     if (newAddr === null) return;
+    const newEmail = prompt('Email (pour les rappels de RDV et alertes de départ, laisser vide si aucun) :', client.email || '');
+    if (newEmail === null) return;
     try {
-      await api(`/client/${client.id}`, { method: 'PUT', body: JSON.stringify({ telephone: newTel, address: newAddr }) });
+      await api(`/client/${client.id}`, { method: 'PUT', body: JSON.stringify({ telephone: newTel, address: newAddr, email: newEmail }) });
       const res = await api(`/clients${state.clientSearch ? '?q=' + encodeURIComponent(state.clientSearch) : ''}`);
       state.clients = res.clients;
       renderClientsTableBody(main);
       client.telephone = newTel;
       client.address = newAddr;
+      client.email = newEmail;
       openClientInfoPanel(main, client);
     } catch (err) { alert(err.message); }
   };
