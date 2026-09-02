@@ -396,6 +396,7 @@ function openClientInfoPanel(main, client) {
       </div>
       <button class="btn btn-outline" id="style-profile-btn" style="margin-top:10px;">✂️ Mon barber habituel</button>
       <button class="btn btn-outline" id="book-client-panel-btn" style="margin-top:10px;">📅 Prendre RDV</button>
+      <button class="btn btn-outline" id="wedding-panel-btn" style="margin-top:10px;">💍 Formule mariage</button>
       <button class="btn btn-ghost" id="close-client-info-btn" style="margin-top:10px;">Fermer</button>
     </div>
   `;
@@ -457,6 +458,10 @@ function openClientInfoPanel(main, client) {
 
   zone.querySelector('#book-client-panel-btn').onclick = () => {
     openBookClientPanel(main, { id: client.id, prenom: client.prenom, nom: client.nom });
+  };
+
+  zone.querySelector('#wedding-panel-btn').onclick = () => {
+    openWeddingPanel(main, { id: client.id, prenom: client.prenom, nom: client.nom });
   };
 
   zone.querySelector('#style-profile-btn').onclick = () => {
@@ -661,6 +666,94 @@ function openBookClientPanel(main, client) {
   };
 }
 
+function openWeddingPanel(main, client) {
+  const zone = main.querySelector('#book-modal-zone');
+  zone.innerHTML = `<div class="loading-spin"></div>`;
+  zone.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  api('/services').then(res => {
+    const weddingServices = res.services.filter(s => s.is_wedding);
+    if (weddingServices.length === 0) {
+      zone.innerHTML = `
+        <div class="scanner-box" style="max-width:100%;margin-top:16px;">
+          <div class="empty-state">Aucune prestation "Formule mariage" configurée. Va dans l'onglet Tarifs et coche "💍 Formule mariage" sur une prestation.</div>
+          <button class="btn btn-ghost" id="cancel-wedding-panel" style="margin-top:10px;">Fermer</button>
+        </div>
+      `;
+      zone.querySelector('#cancel-wedding-panel').onclick = () => { zone.innerHTML = ''; };
+      return;
+    }
+
+    zone.innerHTML = `
+      <div class="scanner-box" style="max-width:100%;margin-top:16px;">
+        <div class="section-title" style="margin-top:0;">💍 Formule mariage — ${client.prenom} ${client.nom}</div>
+        <div class="field">
+          <label>Prestation</label>
+          <select id="wedding-service-select" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:10px;border-radius:8px;">
+            ${weddingServices.map(s => `<option value="${s.id}">${s.name} (${parseFloat(s.price).toFixed(2)}€)</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>Date et heure — Essai (coupe + taille)</label>
+          <input type="datetime-local" id="wedding-essai-datetime" />
+        </div>
+        <div class="field">
+          <label>Date et heure — Jour J (retouches)</label>
+          <input type="datetime-local" id="wedding-jourj-datetime" />
+        </div>
+        <div class="field">
+          <label>Acompte demandé (€, optionnel)</label>
+          <input type="number" id="wedding-deposit" min="0" step="5" placeholder="Ex : 45" />
+        </div>
+        <div class="field">
+          <label>Note (optionnel)</label>
+          <textarea id="wedding-message" rows="2" placeholder="Détails, style souhaité..."></textarea>
+        </div>
+        <div id="wedding-error"></div>
+        <button class="btn btn-primary" id="confirm-wedding-btn">Créer les 2 rendez-vous</button>
+        <button class="btn btn-ghost" id="cancel-wedding-panel" style="margin-top:10px;">Annuler</button>
+      </div>
+    `;
+
+    zone.querySelector('#cancel-wedding-panel').onclick = () => { zone.innerHTML = ''; };
+
+    zone.querySelector('#confirm-wedding-btn').onclick = async () => {
+      const btn = zone.querySelector('#confirm-wedding-btn');
+      const service_id = zone.querySelector('#wedding-service-select').value;
+      const essai_datetime = zone.querySelector('#wedding-essai-datetime').value;
+      const jour_j_datetime = zone.querySelector('#wedding-jourj-datetime').value;
+      const deposit_amount = zone.querySelector('#wedding-deposit').value;
+      const message = zone.querySelector('#wedding-message').value;
+      if (!essai_datetime || !jour_j_datetime) {
+        zone.querySelector('#wedding-error').innerHTML = `<div class="error-msg">Les deux dates sont requises.</div>`;
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = 'Création...';
+      try {
+        await api('/bookings/wedding', {
+          method: 'POST',
+          body: JSON.stringify({
+            client_id: client.id,
+            service_id,
+            essai_datetime: new Date(essai_datetime).toISOString(),
+            jour_j_datetime: new Date(jour_j_datetime).toISOString(),
+            deposit_amount: deposit_amount || undefined,
+            message,
+          }),
+        });
+        zone.innerHTML = `<div class="success-msg" style="margin-top:16px;">✓ Les 2 rendez-vous (essai + jour J) ont été créés pour ${client.prenom} ${client.nom} !</div>`;
+      } catch (err) {
+        zone.querySelector('#wedding-error').innerHTML = `<div class="error-msg">${err.message}</div>`;
+        btn.disabled = false;
+        btn.textContent = 'Créer les 2 rendez-vous';
+      }
+    };
+  }).catch(err => {
+    zone.innerHTML = `<div class="error-msg">${err.message}</div>`;
+  });
+}
+
 /* ---------------- REWARDS TAB ---------------- */
 async function renderRewardsTab(main) {
   main.innerHTML = `<div class="loading-spin"></div>`;
@@ -767,6 +860,9 @@ async function renderServicesTab(main) {
       </div>
       <div class="field"><label>Prix groupe (€, à partir de 3 personnes, optionnel)</label><input name="group_price" type="number" min="0" step="0.5" placeholder="Laisser vide = pas de tarif groupe" /></div>
       <div class="field"><label>Description</label><input name="description" placeholder="Détail de la prestation" /></div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--argent-clair);margin-bottom:12px;">
+        <input type="checkbox" name="is_wedding" /> 💍 Formule mariage (badge spécial, 2 RDV liés possibles)
+      </label>
       <button class="btn btn-outline" type="submit">Ajouter</button>
     </form>
   `;
@@ -776,7 +872,10 @@ async function renderServicesTab(main) {
       <div class="grow">
         <input class="edit-name" value="${s.name.replace(/"/g, '&quot;')}" style="width:100%;margin-bottom:6px;" />
         <input class="edit-desc" value="${(s.description || '').replace(/"/g, '&quot;')}" style="width:100%;margin-bottom:6px;" />
-        <input class="edit-group-price" type="number" min="0" step="0.5" value="${s.group_price != null ? s.group_price : ''}" placeholder="Prix groupe 3+ (optionnel)" style="width:100%;" />
+        <input class="edit-group-price" type="number" min="0" step="0.5" value="${s.group_price != null ? s.group_price : ''}" placeholder="Prix groupe 3+ (optionnel)" style="width:100%;margin-bottom:6px;" />
+        <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--argent);">
+          <input class="edit-is-wedding" type="checkbox" ${s.is_wedding ? 'checked' : ''} /> 💍 Formule mariage
+        </label>
       </div>
       <input class="edit-price" type="number" min="0" step="0.5" value="${s.price}" style="width:80px;" title="Prix (€)" />
       <input class="edit-duration" type="number" min="5" step="5" value="${s.duration_minutes || 30}" style="width:70px;" title="Durée (min)" />
@@ -802,6 +901,7 @@ async function renderServicesTab(main) {
             duration_minutes: row.querySelector('.edit-duration').value,
             group_price: row.querySelector('.edit-group-price').value,
             active: row.querySelector('.edit-active').checked,
+            is_wedding: row.querySelector('.edit-is-wedding').checked,
           }),
         });
         renderServicesTab(main);
@@ -831,6 +931,7 @@ async function renderServicesTab(main) {
           description: fd.get('description'),
           duration_minutes: fd.get('duration_minutes'),
           group_price: fd.get('group_price'),
+          is_wedding: fd.get('is_wedding') === 'on',
         }),
       });
       renderServicesTab(main);
@@ -1240,16 +1341,17 @@ async function renderBookingsTab(main) {
     ${visibleBookings.length === 0 ? `<div class="empty-state">Aucune demande pour le moment.</div>` : ''}
     <div style="display:flex;flex-direction:column;gap:10px;">
       ${visibleBookings.map(b => `
-        <div class="reward-admin-row" data-id="${b.id}" style="flex-direction:column;align-items:stretch;gap:10px;">
+        <div class="reward-admin-row" data-id="${b.id}" style="flex-direction:column;align-items:stretch;gap:10px;${b.wedding_stage ? 'border-color:#ff2ec4;' : ''}">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
             <div>
-              <div style="font-weight:600;font-size:14.5px;">${b.prenom} ${b.nom}</div>
+              <div style="font-weight:600;font-size:14.5px;">${b.prenom} ${b.nom}${b.wedding_stage ? ` <span style="color:#ff2ec4;">💍 ${b.wedding_stage === 'essai' ? 'Essai' : 'Jour J'}</span>` : ''}</div>
               <div style="color:var(--argent);font-size:12.5px;">${b.telephone}</div>
               ${b.address ? `<div style="color:var(--argent);font-size:12px;">📍 ${b.address} <button class="copy-address-btn" data-address="${b.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button> <a href="https://www.waze.com/ul?q=${encodeURIComponent(b.address)}&navigate=yes" target="_blank" rel="noopener" title="Ouvrir dans Waze" style="text-decoration:none;padding:2px 4px;">🚗</a></div>` : ''}
             </div>
             <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
           </div>
           ${b.slot_datetime ? `<div style="font-family:var(--font-mono);font-size:14px;display:flex;align-items:center;gap:8px;">${formatDate(b.slot_datetime)}${b.status === 'confirme' ? ` <a href="${buildICSLink(b, schedule.slot_duration_minutes)}" title="Ajouter au calendrier" style="text-decoration:none;">📅</a>` : ''}</div>` : ''}
+          ${b.deposit_amount != null ? `<div style="font-size:12.5px;display:flex;align-items:center;gap:8px;">💳 Acompte ${parseFloat(b.deposit_amount).toFixed(2)}€ — <span style="color:${b.deposit_paid ? 'var(--succes)' : 'var(--danger)'};">${b.deposit_paid ? 'reçu ✓' : 'en attente'}</span> <button class="btn btn-outline toggle-deposit-btn" data-current="${b.deposit_paid}" style="width:auto;padding:4px 10px;font-size:11px;">${b.deposit_paid ? 'Marquer non reçu' : 'Marquer reçu'}</button></div>` : ''}
           ${b.people_count > 1 ? `<div style="color:var(--argent-clair);font-size:12.5px;">👥 ${b.people_count} personnes${b.total_duration_minutes ? ` · ${b.total_duration_minutes} min` : ''}</div>` : ''}
           ${b.booking_details ? `<div style="font-size:13.5px;color:var(--succes);">${b.booking_details}</div>` : (b.service_name ? `<div style="font-size:13.5px;color:var(--succes);">${b.service_name} · ${parseFloat(b.service_price).toFixed(2)}€</div>` : '')}
           <div style="font-size:13.5px;">${b.message || '—'}</div>
@@ -1414,6 +1516,17 @@ async function renderBookingsTab(main) {
   });
   main.querySelectorAll('.reopen-btn').forEach(btn => {
     btn.onclick = () => updateStatus(btn.closest('[data-id]').dataset.id, 'en_attente');
+  });
+  main.querySelectorAll('.toggle-deposit-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest('[data-id]');
+      const newVal = btn.dataset.current !== 'true';
+      btn.disabled = true;
+      try {
+        await api(`/bookings/${row.dataset.id}/deposit`, { method: 'PUT', body: JSON.stringify({ deposit_paid: newVal }) });
+        renderBookingsTab(main);
+      } catch (err) { alert(err.message); btn.disabled = false; }
+    };
   });
 }
 
