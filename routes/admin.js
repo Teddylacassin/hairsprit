@@ -261,27 +261,28 @@ router.get('/services', requireAdminAuth, async (req, res) => {
 });
 
 router.post('/services', requireAdminAuth, async (req, res) => {
-  const { name, price, description, duration_minutes, group_price } = req.body;
+  const { name, price, description, duration_minutes, group_price, is_wedding } = req.body;
   if (!name || price === undefined || price === '') return res.status(400).json({ error: 'Nom et prix requis.' });
   const id = uuidv4();
   const maxOrderRow = await db.get('SELECT COALESCE(MAX(sort_order),0) as m FROM services');
   const maxOrder = parseInt(maxOrderRow.m, 10);
-  await db.run('INSERT INTO services (id, name, price, description, duration_minutes, group_price, sort_order) VALUES (?,?,?,?,?,?,?)',
-    [id, name.trim(), parseFloat(price), (description || '').trim(), parseInt(duration_minutes, 10) || 30, (group_price !== undefined && group_price !== '') ? parseFloat(group_price) : null, maxOrder + 1]);
+  await db.run('INSERT INTO services (id, name, price, description, duration_minutes, group_price, is_wedding, sort_order) VALUES (?,?,?,?,?,?,?,?)',
+    [id, name.trim(), parseFloat(price), (description || '').trim(), parseInt(duration_minutes, 10) || 30, (group_price !== undefined && group_price !== '') ? parseFloat(group_price) : null, !!is_wedding, maxOrder + 1]);
   res.json({ ok: true, id });
 });
 
 router.put('/services/:id', requireAdminAuth, async (req, res) => {
   const service = await db.get('SELECT * FROM services WHERE id = ?', [req.params.id]);
   if (!service) return res.status(404).json({ error: 'Prestation introuvable.' });
-  const { name, price, description, duration_minutes, group_price, active } = req.body;
-  await db.run('UPDATE services SET name=?, price=?, description=?, duration_minutes=?, group_price=?, active=? WHERE id=?', [
+  const { name, price, description, duration_minutes, group_price, active, is_wedding } = req.body;
+  await db.run('UPDATE services SET name=?, price=?, description=?, duration_minutes=?, group_price=?, active=?, is_wedding=? WHERE id=?', [
     name !== undefined ? name.trim() : service.name,
     price !== undefined ? parseFloat(price) : service.price,
     description !== undefined ? description.trim() : service.description,
     duration_minutes !== undefined ? (parseInt(duration_minutes, 10) || service.duration_minutes) : service.duration_minutes,
     group_price !== undefined ? ((group_price === '' || group_price === null) ? null : parseFloat(group_price)) : service.group_price,
     active !== undefined ? (active ? 1 : 0) : service.active,
+    is_wedding !== undefined ? !!is_wedding : service.is_wedding,
     req.params.id,
   ]);
   res.json({ ok: true });
@@ -390,6 +391,7 @@ router.delete('/blocked-slots/:id', requireAdminAuth, async (req, res) => {
 router.get('/bookings', requireAdminAuth, async (req, res) => {
   const rows = await db.all(`
     SELECT b.id, b.client_id, b.message, b.status, b.created_at, b.slot_datetime, b.people_count, b.total_duration_minutes, b.booking_details, b.commune, b.commune_surcharge,
+           b.wedding_stage, b.linked_booking_id, b.deposit_amount, b.deposit_paid,
            c.nom, c.prenom, c.telephone, c.address, c.admin_notes,
            s.name AS service_name, s.price AS service_price
     FROM bookings b
@@ -419,6 +421,43 @@ router.post('/bookings', requireAdminAuth, async (req, res) => {
   await db.run('INSERT INTO bookings (id, client_id, message, slot_datetime, service_id, booking_details, status) VALUES (?,?,?,?,?,?,?)',
     [id, client_id, (message || '').trim().slice(0, 500), slot_datetime, service_id || null, (booking_details || '').trim().slice(0, 500) || null, 'confirme']);
   res.json({ ok: true, id });
+});
+
+// POST /api/admin/bookings/wedding -> crée la formule mariage : 2 RDV liés (essai + jour J) + acompte
+router.post('/bookings/wedding', requireAdminAuth, async (req, res) => {
+  const { client_id, service_id, essai_datetime, jour_j_datetime, deposit_amount, message } = req.body;
+  if (!client_id || !service_id || !essai_datetime || !jour_j_datetime) {
+    return res.status(400).json({ error: 'Client, prestation et les deux créneaux sont requis.' });
+  }
+  const client = await db.get('SELECT id FROM clients WHERE id = ?', [client_id]);
+  if (!client) return res.status(404).json({ error: 'Client introuvable.' });
+
+  for (const dt of [essai_datetime, jour_j_datetime]) {
+    const existing = await db.get(`SELECT id FROM bookings WHERE slot_datetime = ? AND status != 'annule'`, [dt]);
+    if (existing) return res.status(409).json({ error: `Le créneau ${new Date(dt).toLocaleString('fr-FR')} est déjà pris.` });
+  }
+
+  const depositVal = (deposit_amount !== undefined && deposit_amount !== '' && deposit_amount !== null) ? parseFloat(deposit_amount) : null;
+
+  const essaiId = uuidv4();
+  const jourJId = uuidv4();
+  await db.run(
+    'INSERT INTO bookings (id, client_id, message, slot_datetime, service_id, status, wedding_stage, linked_booking_id, deposit_amount) VALUES (?,?,?,?,?,?,?,?,?)',
+    [essaiId, client_id, (message || '').trim().slice(0, 500), essai_datetime, service_id, 'confirme', 'essai', jourJId, depositVal]
+  );
+  await db.run(
+    'INSERT INTO bookings (id, client_id, message, slot_datetime, service_id, status, wedding_stage, linked_booking_id) VALUES (?,?,?,?,?,?,?,?)',
+    [jourJId, client_id, (message || '').trim().slice(0, 500), jour_j_datetime, service_id, 'confirme', 'jour_j', essaiId]
+  );
+
+  res.json({ ok: true, essaiId, jourJId });
+});
+
+// PUT /api/admin/bookings/:id/deposit -> marquer l'acompte reçu ou non
+router.put('/bookings/:id/deposit', requireAdminAuth, async (req, res) => {
+  const { deposit_paid } = req.body;
+  await db.run('UPDATE bookings SET deposit_paid = ? WHERE id = ?', [!!deposit_paid, req.params.id]);
+  res.json({ ok: true });
 });
 
 router.put('/bookings/:id', requireAdminAuth, async (req, res) => {
