@@ -5,6 +5,7 @@ const db = require('../db');
 const { signToken, requireAdminAuth } = require('../middleware/auth');
 const pointsEmitter = require('../events');
 const { geocodeAddress } = require('../geocode');
+const { sendDepartureAlertEmail } = require('../notify');
 const { syncBankTransactions } = require('../bankSync');
 
 const router = express.Router();
@@ -25,6 +26,7 @@ function clientPublic(client) {
     prenom: client.prenom,
     telephone: client.telephone,
     address: client.address,
+    email: client.email,
     admin_notes: client.admin_notes,
     points: client.points,
     created_at: client.created_at,
@@ -198,7 +200,7 @@ router.put('/client/:id', requireAdminAuth, async (req, res) => {
   const targetClient = await db.get('SELECT * FROM clients WHERE id = ?', [req.params.id]);
   if (!targetClient) return res.status(404).json({ error: 'Client introuvable.' });
 
-  const { telephone, address } = req.body;
+  const { telephone, address, email } = req.body;
   let tel = targetClient.telephone;
   if (telephone !== undefined) {
     tel = String(telephone).replace(/[\s.\-()]/g, '');
@@ -208,10 +210,19 @@ router.put('/client/:id', requireAdminAuth, async (req, res) => {
       if (existing) return res.status(409).json({ error: 'Un autre client utilise déjà ce numéro.' });
     }
   }
+  let emailVal = targetClient.email;
+  if (email !== undefined) {
+    const emailTrimmed = (email || '').trim();
+    if (emailTrimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed)) {
+      return res.status(400).json({ error: 'Adresse email invalide.' });
+    }
+    emailVal = emailTrimmed || null;
+  }
 
-  await db.run('UPDATE clients SET telephone = ?, address = ? WHERE id = ?', [
+  await db.run('UPDATE clients SET telephone = ?, address = ?, email = ? WHERE id = ?', [
     tel,
     address !== undefined ? ((address || '').trim() || null) : targetClient.address,
+    emailVal,
     req.params.id,
   ]);
   const updated = await db.get('SELECT * FROM clients WHERE id = ?', [req.params.id]);
@@ -886,6 +897,7 @@ router.post('/trip/start', requireAdminAuth, async (req, res) => {
   }
 
   await db.run('UPDATE live_trip SET active = true, client_id = ?, lat = NULL, lng = NULL, updated_at = now() WHERE id = ?', [client_id, 'default']);
+  sendDepartureAlertEmail({ client }).catch(() => {});
   res.json({ ok: true });
 });
 
