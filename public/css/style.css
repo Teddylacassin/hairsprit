@@ -1067,6 +1067,115 @@ tr:last-child td { border-bottom: none; }
 }
 
 /* ---------------- WEDDING SERVICE CARD (Formule mariage) ---------------- */
+/* ---------------- WEDDING ADMIN PANEL (style gaming) ---------------- */
+.wedding-admin-card {
+  position: relative;
+  overflow: hidden;
+  max-width: 100%;
+  margin-top: 16px;
+  padding: 18px;
+  background: linear-gradient(160deg, #0d1018 0%, #0a0708 70%);
+  border: 1px solid rgba(255, 46, 196, 0.35);
+  clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px));
+}
+.wedding-admin-scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #ff2ec4, transparent);
+  opacity: 0.6;
+  animation: wedding-scan 3.5s linear infinite;
+}
+.wedding-admin-title {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 1px;
+  color: #ff2ec4;
+  text-shadow: 0 0 10px rgba(255, 46, 196, 0.4);
+  margin-bottom: 16px;
+  position: relative;
+  z-index: 1;
+}
+.wedding-select {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  color: var(--blanc);
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.wedding-step-box {
+  border-radius: 12px;
+  padding: 14px;
+  margin-top: 14px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.wedding-step-box.cyan {
+  border: 1px solid rgba(0, 229, 255, 0.4);
+}
+.wedding-step-box.magenta {
+  border: 1px solid rgba(255, 46, 196, 0.5);
+}
+.wedding-step-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.wedding-step-num {
+  font-weight: 800;
+  font-size: 12px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #000;
+}
+.wedding-step-num.cyan {
+  background: var(--cyan, #00e5ff);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.6);
+}
+.wedding-step-num.magenta {
+  background: #ff2ec4;
+  color: #fff;
+  box-shadow: 0 0 10px rgba(255, 46, 196, 0.6);
+}
+.wedding-step-title {
+  font-weight: 700;
+  font-size: 12.5px;
+  letter-spacing: 0.3px;
+  color: var(--blanc);
+}
+.wedding-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--panel-2);
+  border: 1px solid var(--ligne);
+  color: var(--blanc);
+  padding: 11px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.wedding-confirm-btn {
+  width: 100%;
+  padding: 15px;
+  margin-top: 8px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #00e5ff, #9d4dff);
+  color: #000;
+  font-weight: 800;
+  font-size: 12.5px;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+
 .wedding-service-card {
   position: relative;
   overflow: hidden;
