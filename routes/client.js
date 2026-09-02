@@ -292,7 +292,7 @@ router.get('/available-slots', requireClientAuth, async (req, res) => {
 
   const slots = [];
   const now = new Date();
-  for (let dayOffset = 0; dayOffset < 14; dayOffset++) {
+  for (let dayOffset = 0; dayOffset < 90; dayOffset++) {
     const dayInstant = new Date(now.getTime() + dayOffset * 86400000);
     const dateStr = brusselsDateStr(dayInstant);
     const weekday = new Date(dateStr + 'T12:00:00Z').getUTCDay();
