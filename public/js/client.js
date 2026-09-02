@@ -1355,6 +1355,7 @@ function openBookingSheet() {
 
   let selectedSlot = null;
   let selectedDate = null; // 'YYYY-MM-DD'
+  let dateRejectedMsg = null;
   let peopleCount = 1;
   let personServiceIds = []; // personServiceIds[i] = liste des id de prestations cochées pour la personne i
   let expandedPersons = new Set([0]); // quelle(s) liste(s) de prestations sont ouvertes
@@ -1431,6 +1432,10 @@ function openBookingSheet() {
 
     // Jours disponibles (pour limiter le calendrier)
     const availableDates = [...new Set(allSlots.map(dateKey))].sort();
+    dateRejectedMsg = null;
+    if (selectedDate && !availableDates.includes(selectedDate) && availableDates.length > 0) {
+      dateRejectedMsg = `La date choisie n'est pas encore ouverte à la réservation (créneaux visibles jusqu'à ${new Date(availableDates[availableDates.length - 1]).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} pour l'instant). On te propose la date la plus proche à la place.`;
+    }
     if (!selectedDate || !availableDates.includes(selectedDate)) {
       selectedDate = availableDates[0] || null;
     }
@@ -1496,6 +1501,7 @@ function openBookingSheet() {
       ` : ''}
 
       <div class="section-title">Choisir un jour</div>
+      ${dateRejectedMsg ? `<div class="error-msg">${dateRejectedMsg}</div>` : ''}
       ${availableDates.length === 0 ? `<div class="empty-state">Aucun créneau disponible pour le moment. Essayez avec moins de personnes.</div>` : `
         <div class="field" style="max-width:220px;">
           <input type="date" id="date-picker" value="${selectedDate}" min="${availableDates[0]}" max="${availableDates[availableDates.length - 1]}" />
