@@ -33,6 +33,7 @@ function clientPublic(client) {
     prenom: client.prenom,
     telephone: client.telephone,
     address: client.address,
+    email: client.email,
     points: client.points,
     created_at: client.created_at,
   };
@@ -45,7 +46,7 @@ function isValidPin(pin) {
 // POST /api/client/register
 router.post('/register', async (req, res) => {
   try {
-    const { nom, prenom, telephone, address, pin, ref } = req.body;
+    const { nom, prenom, telephone, address, email, pin, ref } = req.body;
     if (!nom || !prenom || !telephone) {
       return res.status(400).json({ error: 'Nom, prénom et téléphone sont obligatoires.' });
     }
@@ -56,6 +57,10 @@ router.post('/register', async (req, res) => {
     if (tel.length < 8) {
       return res.status(400).json({ error: 'Numéro de téléphone invalide.' });
     }
+    const emailTrimmed = (email || '').trim();
+    if (emailTrimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed)) {
+      return res.status(400).json({ error: 'Adresse email invalide.' });
+    }
 
     const existing = await db.get('SELECT * FROM clients WHERE telephone = ?', [tel]);
     if (existing) {
@@ -65,8 +70,8 @@ router.post('/register', async (req, res) => {
     const id = uuidv4();
     const qrToken = uuidv4();
     const pinHash = bcrypt.hashSync(pin, 10);
-    await db.run('INSERT INTO clients (id, nom, prenom, telephone, address, qr_token, points, pin_hash) VALUES (?,?,?,?,?,?,0,?)',
-      [id, nom.trim(), prenom.trim(), tel, (address || '').trim() || null, qrToken, pinHash]);
+    await db.run('INSERT INTO clients (id, nom, prenom, telephone, address, email, qr_token, points, pin_hash) VALUES (?,?,?,?,?,?,?,0,?)',
+      [id, nom.trim(), prenom.trim(), tel, (address || '').trim() || null, emailTrimmed || null, qrToken, pinHash]);
 
     // Bonus de parrainage : si le client arrive via le lien/QR d'un ami, les deux reçoivent 1 point
     if (ref) {
@@ -182,9 +187,19 @@ router.get('/me', requireClientAuth, async (req, res) => {
 
 // PUT /api/client/me -> update own address
 router.put('/me', requireClientAuth, async (req, res) => {
-  const { address } = req.body;
-  await db.run('UPDATE clients SET address = ? WHERE id = ?', [
-    (address || '').trim() || null,
+  const { address, email } = req.body;
+  const targetClient = await db.get('SELECT * FROM clients WHERE id = ?', [req.clientId]);
+  let emailVal = targetClient.email;
+  if (email !== undefined) {
+    const emailTrimmed = (email || '').trim();
+    if (emailTrimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed)) {
+      return res.status(400).json({ error: 'Adresse email invalide.' });
+    }
+    emailVal = emailTrimmed || null;
+  }
+  await db.run('UPDATE clients SET address = ?, email = ? WHERE id = ?', [
+    address !== undefined ? ((address || '').trim() || null) : targetClient.address,
+    emailVal,
     req.clientId,
   ]);
   const client = await db.get('SELECT * FROM clients WHERE id = ?', [req.clientId]);
