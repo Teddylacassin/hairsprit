@@ -396,6 +396,10 @@ function renderAuthRegister() {
           <input id="telephone" name="telephone" type="tel" placeholder="06 12 34 56 78" required />
         </div>
         <div class="field">
+          <label for="email">Email (optionnel, pour les rappels de RDV)</label>
+          <input id="email" name="email" type="email" placeholder="karim@exemple.com" />
+        </div>
+        <div class="field">
           <label for="pin">Code PIN (4 chiffres, pour protéger votre compte)</label>
           <input id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" required />
         </div>
@@ -430,6 +434,7 @@ function renderAuthRegister() {
           prenom: fd.get('prenom'),
           telephone: fd.get('telephone'),
           address: fd.get('address'),
+          email: fd.get('email'),
           pin: fd.get('pin'),
           ref: state.referralCode || undefined,
         }),
@@ -1308,13 +1313,17 @@ function openAddressSheet() {
   backdrop.className = 'sheet-backdrop';
   backdrop.innerHTML = `
     <div class="sheet">
-      <h3>Mon adresse</h3>
-      <div class="sub">Utilisée pour les prestations à domicile.</div>
+      <h3>Mon profil</h3>
+      <div class="sub">Adresse utilisée pour les prestations à domicile, email pour les rappels de RDV et alertes de départ.</div>
       <div id="address-error"></div>
       <form id="address-form">
         <div class="field">
           <label for="address-input">Adresse</label>
           <input id="address-input" name="address" placeholder="12 rue des Lilas, 75011 Paris" value="${(state.client.address || '').replace(/"/g, '&quot;')}" />
+        </div>
+        <div class="field">
+          <label for="email-input">Email (optionnel)</label>
+          <input id="email-input" name="email" type="email" placeholder="karim@exemple.com" value="${(state.client.email || '').replace(/"/g, '&quot;')}" />
         </div>
         <button class="btn btn-primary" type="submit">Enregistrer</button>
         <button class="btn btn-ghost" type="button" id="cancel-address" style="margin-top:10px;">Annuler</button>
@@ -1328,8 +1337,9 @@ function openAddressSheet() {
   backdrop.querySelector('#address-form').onsubmit = async (e) => {
     e.preventDefault();
     const address = e.target.address.value;
+    const email = e.target.email.value;
     try {
-      const res = await api('/me', { method: 'PUT', body: JSON.stringify({ address }) });
+      const res = await api('/me', { method: 'PUT', body: JSON.stringify({ address, email }) });
       state.client = res.client;
       backdrop.remove();
       renderDashboard();
