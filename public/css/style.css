@@ -1178,10 +1178,28 @@ tr:last-child td { border-bottom: none; }
 
 /* ---------------- SERVICE CARD (Tarifs classiques, style gaming poussé) ---------------- */
 .service-card {
+  position: relative;
+  overflow: hidden;
   background: #0d0e12;
   border: 1px solid rgba(0, 229, 255, 0.25);
   border-radius: 14px;
   padding: 15px;
+}
+.service-card::after,
+.wedding-service-card::after {
+  content: '';
+  position: absolute;
+  right: -14px;
+  bottom: -14px;
+  width: 68px;
+  height: 46px;
+  background-image: url('/icon-mono.png');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  filter: brightness(0) invert(1);
+  opacity: 0.05;
+  pointer-events: none;
 }
 .service-card-head {
   display: flex;
@@ -1235,6 +1253,8 @@ tr:last-child td { border-bottom: none; }
 }
 
 .wedding-service-card {
+  position: relative;
+  overflow: hidden;
   background: #140d14;
   border: 1px solid rgba(255, 46, 196, 0.35);
   border-radius: 14px;
