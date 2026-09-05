@@ -813,6 +813,21 @@ async function renderRewardsTab(main) {
       <div class="field"><label>Nom</label><input name="name" required placeholder="Ex : Coupe offerte" /></div>
       <div class="field"><label>Points requis</label><input name="points_required" type="number" min="1" required /></div>
       <div class="field"><label>Description</label><input name="description" placeholder="Détail de la récompense" /></div>
+      <div style="display:flex;gap:10px;">
+        <div class="field" style="flex:1;">
+          <label>Type de réduction</label>
+          <select name="discount_type" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:10px;border-radius:8px;">
+            <option value="">Aucune (juste affichage)</option>
+            <option value="percent">Pourcentage (%)</option>
+            <option value="fixed">Montant fixe (€)</option>
+            <option value="free">Prestation offerte (100%)</option>
+          </select>
+        </div>
+        <div class="field" style="flex:1;">
+          <label>Valeur</label>
+          <input name="discount_value" type="number" min="0" step="1" placeholder="Ex : 20" />
+        </div>
+      </div>
       <button class="btn btn-outline" type="submit">Ajouter</button>
     </form>
   `;
@@ -821,7 +836,16 @@ async function renderRewardsTab(main) {
     <div class="reward-admin-row" data-id="${r.id}">
       <div class="grow">
         <input class="edit-name" value="${r.name.replace(/"/g, '&quot;')}" style="width:100%;margin-bottom:6px;" />
-        <input class="edit-desc" value="${(r.description || '').replace(/"/g, '&quot;')}" style="width:100%;" />
+        <input class="edit-desc" value="${(r.description || '').replace(/"/g, '&quot;')}" style="width:100%;margin-bottom:6px;" />
+        <div style="display:flex;gap:6px;">
+          <select class="edit-discount-type" style="flex:1;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:6px;border-radius:6px;font-size:12px;">
+            <option value="" ${!r.discount_type ? 'selected' : ''}>Aucune réduction</option>
+            <option value="percent" ${r.discount_type === 'percent' ? 'selected' : ''}>% </option>
+            <option value="fixed" ${r.discount_type === 'fixed' ? 'selected' : ''}>€ fixe</option>
+            <option value="free" ${r.discount_type === 'free' ? 'selected' : ''}>Offert</option>
+          </select>
+          <input class="edit-discount-value" type="number" min="0" step="1" value="${r.discount_value != null ? r.discount_value : ''}" placeholder="Valeur" style="width:70px;font-size:12px;" />
+        </div>
       </div>
       <input class="edit-points" type="number" value="${r.points_required}" style="width:70px;" />
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--argent);">
@@ -844,6 +868,8 @@ async function renderRewardsTab(main) {
             description: row.querySelector('.edit-desc').value,
             points_required: row.querySelector('.edit-points').value,
             active: row.querySelector('.edit-active').checked,
+            discount_type: row.querySelector('.edit-discount-type').value,
+            discount_value: row.querySelector('.edit-discount-value').value,
           }),
         });
         renderRewardsTab(main);
@@ -871,6 +897,8 @@ async function renderRewardsTab(main) {
           name: fd.get('name'),
           points_required: fd.get('points_required'),
           description: fd.get('description'),
+          discount_type: fd.get('discount_type'),
+          discount_value: fd.get('discount_value'),
         }),
       });
       renderRewardsTab(main);
@@ -1655,14 +1683,9 @@ async function renderAccountingTab(main) {
     state.accountingMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   }
   main.innerHTML = `<div class="loading-spin"></div>`;
-  let data, goal;
+  let data;
   try {
-    const [accountingRes, goalRes] = await Promise.all([
-      api(`/accounting?month=${state.accountingMonth}`),
-      api('/accounting-goal'),
-    ]);
-    data = accountingRes;
-    goal = goalRes;
+    data = await api(`/accounting?month=${state.accountingMonth}`);
   } catch (e) {
     main.innerHTML = `<div class="error-msg">${e.message}</div>`;
     return;
@@ -1675,8 +1698,8 @@ async function renderAccountingTab(main) {
       <span style="font-weight:600;text-transform:capitalize;">${monthLabel(data.month)}</span>
       <button id="acct-next" style="background:none;border:none;color:var(--blanc);font-size:18px;cursor:pointer;padding:4px 10px;">›</button>
     </div>
+    <div class="sub" style="color:var(--argent);font-size:11.5px;margin-bottom:14px;">Seules les prestations déjà réalisées comptent ici — un RDV confirmé mais pas encore passé n'apparaît pas.</div>
 
-    <div class="section-title">Compte de résultat</div>
     <div class="scanner-box" style="max-width:100%;">
       <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13.5px;font-weight:600;">
         <span>Revenus</span><span></span>
@@ -1705,45 +1728,13 @@ async function renderAccountingTab(main) {
       <div style="display:flex;justify-content:space-between;border-top:1px solid var(--ligne);margin-top:6px;padding-top:10px;font-weight:700;font-size:15px;">
         <span>Résultat net</span><span style="font-family:var(--font-mono);font-size:20px;color:${data.net >= 0 ? 'var(--succes)' : 'var(--danger)'};">${data.net.toFixed(2)}€</span>
       </div>
-    </div>
-
-    <div class="section-title">💰 À mettre de côté (${data.setasidePercent}%)</div>
-    <div class="scanner-box" style="max-width:100%;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div>
-          <div style="font-size:11px;color:var(--argent);">Cotisations, impôts... (pourcentage réglable)</div>
-          <div style="font-family:var(--font-mono);font-size:24px;font-weight:700;color:#e8c463;margin-top:4px;">${data.setasideAmount.toFixed(2)}€</div>
-        </div>
-        <button class="btn btn-outline" id="acct-edit-percent-btn" style="width:auto;padding:8px 12px;font-size:12px;">✏️ % </button>
-      </div>
-      <div style="border-top:1px solid var(--ligne);margin-top:10px;padding-top:8px;font-size:12px;color:var(--argent-clair);display:flex;justify-content:space-between;">
-        <span>Disponible après mise de côté</span>
-        <span style="font-family:var(--font-mono);color:var(--succes);">${data.availableAfterSetaside.toFixed(2)}€</span>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--ligne);font-size:12px;color:var(--argent-clair);">
+        <span>💰 À mettre de côté (<span id="acct-percent-label">${data.setasidePercent}</span>%) <button class="btn-ghost" id="acct-edit-percent-btn" style="background:none;border:none;color:var(--argent);cursor:pointer;padding:0 4px;text-decoration:underline;font-size:11px;">modifier</button></span>
+        <span style="font-family:var(--font-mono);color:#e8c463;">${data.setasideAmount.toFixed(2)}€</span>
       </div>
     </div>
 
-    <div class="section-title">🎯 Objectif d'épargne</div>
-    <div class="scanner-box" style="max-width:100%;">
-      ${goal.hasGoal ? `
-        <div style="display:flex;justify-content:space-between;align-items:baseline;">
-          <div style="font-weight:600;font-size:14px;">${goal.goalLabel || 'Objectif'}</div>
-          <button class="btn btn-outline" id="acct-edit-goal-btn" style="width:auto;padding:6px 10px;font-size:11px;">Modifier</button>
-        </div>
-        <div style="margin-top:10px;background:var(--panel-2);border-radius:8px;height:10px;overflow:hidden;">
-          <div style="height:100%;width:${goal.pct.toFixed(1)}%;background:${goal.reached ? 'var(--succes)' : 'linear-gradient(90deg,#9d4dff,#00e5ff)'};transition:width 0.4s;"></div>
-        </div>
-        <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12.5px;">
-          <span style="font-family:var(--font-mono);color:var(--argent-clair);">${goal.cumulativeSetAside.toFixed(2)}€ / ${goal.goalAmount.toFixed(2)}€</span>
-          <span style="font-family:var(--font-mono);color:${goal.reached ? 'var(--succes)' : 'var(--argent-clair)'};">${goal.pct.toFixed(0)}%</span>
-        </div>
-        ${goal.reached ? `<div style="color:var(--succes);font-size:12.5px;margin-top:6px;">🎉 Objectif atteint !</div>` : ''}
-      ` : `
-        <div class="empty-state">Aucun objectif défini.</div>
-        <button class="btn btn-outline" id="acct-edit-goal-btn" style="margin-top:10px;">🎯 Définir un objectif</button>
-      `}
-    </div>
-
-    <div class="section-title">Journal comptable</div>
+    <div class="section-title">Journal</div>
     ${data.entries.length === 0 ? `<div class="empty-state">Aucun mouvement ce mois-ci.</div>` : ''}
     <div style="display:flex;flex-direction:column;gap:8px;">
       ${data.entries.map(e => `
@@ -1751,7 +1742,6 @@ async function renderAccountingTab(main) {
           <div style="display:flex;flex-direction:column;gap:2px;">
             <div style="font-size:13px;font-weight:500;">${e.label}</div>
             <div style="font-size:11px;color:var(--argent);">${new Date(e.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}</div>
-            <div style="display:inline-block;font-size:10px;border:1px solid var(--ligne);border-radius:20px;padding:2px 8px;color:var(--argent-clair);margin-top:3px;width:fit-content;">${e.category}</div>
           </div>
           <div style="font-family:var(--font-mono);font-weight:600;font-size:14px;color:${e.type === 'revenu' ? 'var(--succes)' : 'var(--danger)'};">${e.type === 'revenu' ? '+' : '−'}${e.amount.toFixed(2)}€</div>
         </div>
@@ -1770,22 +1760,6 @@ async function renderAccountingTab(main) {
       renderAccountingTab(main);
     } catch (err) { alert(err.message); }
   };
-
-  const editGoalBtn = main.querySelector('#acct-edit-goal-btn');
-  if (editGoalBtn) {
-    editGoalBtn.onclick = async () => {
-      const label = prompt('Nom de l\'objectif (ex : Provision impôts 2026, Achat véhicule...) :', goal.goalLabel || '');
-      if (label === null) return;
-      const amount = prompt('Montant à atteindre (€) :', goal.goalAmount || '');
-      if (amount === null) return;
-      const startDate = prompt('Compter depuis quelle date ? (AAAA-MM-JJ)', goal.goalStartDate ? goal.goalStartDate.slice(0, 10) : new Date().toISOString().slice(0, 10));
-      if (startDate === null) return;
-      try {
-        await api('/accounting-settings', { method: 'PUT', body: JSON.stringify({ goal_label: label, goal_amount: amount, goal_start_date: startDate }) });
-        renderAccountingTab(main);
-      } catch (err) { alert(err.message); }
-    };
-  }
 }
 
 /* ---------------- BANK TAB (synchronisation Ponto/Belfius) ---------------- */
