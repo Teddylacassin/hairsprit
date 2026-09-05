@@ -237,6 +237,10 @@ async function initDb() {
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS address_lng NUMERIC;`);
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS email TEXT;`);
   await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN NOT NULL DEFAULT false;`);
+  await pool.query(`ALTER TABLE rewards ADD COLUMN IF NOT EXISTS discount_type TEXT;`);
+  await pool.query(`ALTER TABLE rewards ADD COLUMN IF NOT EXISTS discount_value NUMERIC;`);
+  await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reward_id TEXT;`);
+  await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reward_points_used INTEGER;`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS live_trip (
