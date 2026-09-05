@@ -610,8 +610,8 @@ a { color: inherit; }
   gap: 10px;
 }
 .reward-card {
-  background: var(--panel);
-  border: 1px solid var(--ligne);
+  background: #0d0e12;
+  border: 1px solid rgba(0, 229, 255, 0.18);
   border-radius: 12px;
   padding: 16px;
   display: flex;
@@ -641,11 +641,11 @@ a { color: inherit; }
   right: 0;
   text-align: center;
   font-size: 11px;
-  color: var(--succes);
+  color: #00e5ff;
   animation: fade-in 0.15s ease;
 }
 .reward-card.unlocked {
-  border-color: #2c4a34;
+  border-color: rgba(0, 229, 255, 0.45);
 }
 .reward-name {
   font-weight: 600;
@@ -666,8 +666,8 @@ a { color: inherit; }
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  background: #14261a;
-  color: var(--succes);
+  background: rgba(0, 229, 255, 0.1);
+  color: #00e5ff;
   padding: 4px 9px;
   border-radius: 20px;
   white-space: nowrap;
@@ -725,8 +725,8 @@ a { color: inherit; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--panel);
-  border: 1px solid var(--ligne);
+  background: #0d0e12;
+  border: 1px solid rgba(0, 229, 255, 0.18);
   border-radius: 10px;
   padding: 12px 14px;
   gap: 10px;
@@ -738,7 +738,7 @@ a { color: inherit; }
 }
 .history-item .pts {
   font-family: var(--font-mono);
-  color: var(--succes);
+  color: #00e5ff;
   font-size: 13.5px;
   white-space: nowrap;
 }
@@ -754,10 +754,10 @@ a { color: inherit; }
   color: var(--argent-clair);
   white-space: nowrap;
 }
-.pill.status-en_attente { color: #e0c46b; border-color: #4a4128; }
-.pill.status-confirme { color: var(--succes); border-color: #2c4a34; }
-.pill.status-annule { color: var(--danger); border-color: #4a2c28; }
-.pill.status-livre { color: var(--succes); border-color: #2c4a34; }
+.pill.status-en_attente { color: #e0c46b; border-color: rgba(224, 196, 107, 0.4); }
+.pill.status-confirme { color: #00e5ff; border-color: rgba(0, 229, 255, 0.4); }
+.pill.status-annule { color: #ff3b5c; border-color: rgba(255, 59, 92, 0.4); }
+.pill.status-livre { color: #00e5ff; border-color: rgba(0, 229, 255, 0.4); }
 
 /* ---------------- BOOKING CTA / SHEETS ---------------- */
 .book-cta {
@@ -1371,5 +1371,5 @@ tr:last-child td { border-bottom: none; }
   color: var(--argent);
   font-size: 12.5px;
 }
-.pill.status-prete { color: var(--succes); border-color: #2c4a34; }
+.pill.status-prete { color: #00e5ff; border-color: rgba(0, 229, 255, 0.4); }
 .pill.status-recuperee { color: var(--argent-clair); border-color: var(--ligne); }
