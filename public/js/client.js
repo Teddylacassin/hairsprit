@@ -856,7 +856,7 @@ function renderDashboardTabContent() {
                 </div>
               </div>
               <div class="wedding-service-price">${parseFloat(s.price).toFixed(2)}€</div>
-              <button class="book-this-service-btn" data-service-id="${s.id}" style="width:100%;margin-top:12px;padding:11px;border:none;border-radius:10px;background:linear-gradient(135deg,#ff2ec4,#9d4dff);color:#fff;font-weight:700;font-size:12.5px;letter-spacing:0.5px;cursor:pointer;">Réserver cette formule</button>
+              <button class="book-this-service-btn" data-service-id="${s.id}" style="width:100%;margin-top:12px;padding:12px;border:none;clip-path:polygon(8px 0,100% 0,100% 100%,0 100%,0 8px);background:linear-gradient(135deg,#ff2ec4,#9d4dff);color:#fff;font-family:var(--font-display);font-weight:800;font-size:11px;letter-spacing:1px;cursor:pointer;position:relative;z-index:1;">RÉSERVER CETTE FORMULE</button>
             </div>
           `).join('')}
         </div>
@@ -879,7 +879,7 @@ function renderDashboardTabContent() {
                 ${s.duration_minutes ? `<span class="service-card-tag">${s.duration_minutes} min</span>` : ''}
                 ${s.group_price ? `<span class="service-card-tag">👥 dès 3 pers. : ${parseFloat(s.group_price).toFixed(2)}€/pers.</span>` : ''}
               </div>
-              <button class="book-this-service-btn" data-service-id="${s.id}" style="width:100%;margin-top:12px;padding:10px;border:1px solid rgba(0,229,255,0.3);border-radius:8px;background:transparent;color:var(--succes);font-weight:600;font-size:12px;cursor:pointer;">Réserver</button>
+              <button class="book-this-service-btn" data-service-id="${s.id}" style="width:100%;margin-top:12px;padding:11px;border:none;clip-path:polygon(8px 0,100% 0,100% 100%,0 100%,0 8px);background:linear-gradient(135deg,#00e5ff,#9d4dff);color:#000;font-family:var(--font-display);font-weight:800;font-size:11px;letter-spacing:1px;cursor:pointer;position:relative;z-index:1;">RÉSERVER</button>
             </div>
           `).join('')}
         </div>
