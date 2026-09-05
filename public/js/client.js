@@ -1519,21 +1519,14 @@ function openBookingSheet(preselectedServiceId) {
 
       ${allServices.length > 0 ? personServiceIds.map((ids, i) => `
         <div class="field">
-          <label>Prestations — Personne ${i + 1}</label>
-          <button type="button" class="btn btn-outline service-toggle-btn" data-person="${i}" style="text-align:left;">
-            ${personSummary(ids)} ${expandedPersons.has(i) ? '▲' : '▼'}
-          </button>
-          ${expandedPersons.has(i) ? `
-            <div style="max-height:200px;overflow-y:auto;margin-top:8px;">
-              ${allServices.map(s => `
-                <label style="display:block;background:var(--panel);border:1px solid var(--ligne);border-radius:8px;padding:10px 12px;font-size:13px;cursor:pointer;margin-bottom:6px;">
-                  <input type="checkbox" class="person-service-check" data-person="${i}" data-service="${s.id}" ${ids.includes(s.id) ? 'checked' : ''} style="vertical-align:middle;margin-right:8px;" />
-                  <span style="vertical-align:middle;">${s.name}</span>
-                  <div style="font-family:var(--font-mono);color:var(--argent-clair);font-size:11.5px;margin-top:4px;padding-left:26px;">${personPrice(s).toFixed(2)}€${peopleCount >= 3 && s.group_price != null ? ' (groupe)' : ''} · ${s.duration_minutes}min</div>
-                </label>
-              `).join('')}
-            </div>
-          ` : ''}
+          <label>Prestations — Personne ${i + 1} (touche pour sélectionner)</label>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            ${allServices.map(s => `
+              <button type="button" class="service-chip ${ids.includes(s.id) ? 'active' : ''}" data-person="${i}" data-service="${s.id}" style="background:${ids.includes(s.id) ? 'rgba(0,229,255,0.12)' : 'var(--panel-2)'};border:1px solid ${ids.includes(s.id) ? 'var(--succes)' : 'var(--ligne)'};border-radius:20px;padding:10px 16px;font-size:13px;color:${ids.includes(s.id) ? 'var(--succes)' : 'var(--blanc)'};font-weight:${ids.includes(s.id) ? '600' : '400'};display:flex;align-items:center;gap:6px;cursor:pointer;">
+                ${ids.includes(s.id) ? '✓ ' : ''}${s.name} <span style="font-family:var(--font-mono);font-size:11px;opacity:0.75;">${personPrice(s).toFixed(2)}€${peopleCount >= 3 && s.group_price != null ? ' grp' : ''}</span>
+              </button>
+            `).join('')}
+          </div>
         </div>
       `).join('') : ''}
 
@@ -1633,23 +1626,14 @@ function openBookingSheet(preselectedServiceId) {
       };
     });
 
-    zone.querySelectorAll('.service-toggle-btn').forEach(btn => {
-      btn.onclick = () => {
-        const personIdx = parseInt(btn.dataset.person, 10);
-        if (expandedPersons.has(personIdx)) expandedPersons.delete(personIdx);
-        else expandedPersons.add(personIdx);
-        loadAll();
-      };
-    });
-
-    zone.querySelectorAll('.person-service-check').forEach(chk => {
-      chk.onchange = () => {
-        const personIdx = parseInt(chk.dataset.person, 10);
-        const serviceId = chk.dataset.service;
-        if (chk.checked) {
-          if (!personServiceIds[personIdx].includes(serviceId)) personServiceIds[personIdx].push(serviceId);
-        } else {
+    zone.querySelectorAll('.service-chip').forEach(chip => {
+      chip.onclick = () => {
+        const personIdx = parseInt(chip.dataset.person, 10);
+        const serviceId = chip.dataset.service;
+        if (personServiceIds[personIdx].includes(serviceId)) {
           personServiceIds[personIdx] = personServiceIds[personIdx].filter(id => id !== serviceId);
+        } else {
+          personServiceIds[personIdx].push(serviceId);
         }
         selectedSlot = null;
         loadAll();
