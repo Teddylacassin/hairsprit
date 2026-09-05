@@ -247,7 +247,7 @@ router.get('/history', requireClientAuth, async (req, res) => {
 
 // GET /api/client/rewards -> active rewards list
 router.get('/rewards', requireClientAuth, async (req, res) => {
-  const rewards = await db.all('SELECT id, name, points_required, description FROM rewards WHERE active = 1 ORDER BY sort_order ASC');
+  const rewards = await db.all('SELECT id, name, points_required, description, discount_type, discount_value FROM rewards WHERE active = 1 ORDER BY sort_order ASC');
   res.json({ rewards });
 });
 
@@ -358,7 +358,7 @@ router.put('/booking/:id/cancel', requireClientAuth, async (req, res) => {
 
 // POST /api/client/booking
 router.post('/booking', requireClientAuth, async (req, res) => {
-  const { message, slot_datetime, service_id, people_count, total_duration_minutes, booking_details, commune_id } = req.body;
+  const { message, slot_datetime, service_id, people_count, total_duration_minutes, booking_details, commune_id, reward_id } = req.body;
   const id = uuidv4();
   const duration = parseInt(total_duration_minutes, 10) || 30;
 
@@ -369,6 +369,17 @@ router.post('/booking', requireClientAuth, async (req, res) => {
     if (commune) {
       communeName = commune.name;
       communeSurcharge = parseFloat(commune.surcharge) || 0;
+    }
+  }
+
+  // Application d'une récompense fidélité, si demandée
+  let reward = null;
+  const client0 = await db.get('SELECT * FROM clients WHERE id = ?', [req.clientId]);
+  if (reward_id) {
+    reward = await db.get('SELECT * FROM rewards WHERE id = ? AND active = 1', [reward_id]);
+    if (!reward) return res.status(404).json({ error: 'Récompense introuvable.' });
+    if (client0.points < reward.points_required) {
+      return res.status(400).json({ error: "Tu n'as pas assez de points pour cette récompense." });
     }
   }
 
@@ -400,10 +411,33 @@ router.post('/booking', requireClientAuth, async (req, res) => {
   }
 
   const peopleCountVal = Math.max(1, parseInt(people_count, 10) || 1);
-  const finalBookingDetails = `${(booking_details || '').trim()}${communeName ? `${booking_details ? ' · ' : ''}Commune : ${communeName}${communeSurcharge > 0 ? ` (+${communeSurcharge.toFixed(2)}€)` : ''}` : ''}`.trim().slice(0, 800) || null;
+  let finalBookingDetails = `${(booking_details || '').trim()}${communeName ? `${booking_details ? ' · ' : ''}Commune : ${communeName}${communeSurcharge > 0 ? ` (+${communeSurcharge.toFixed(2)}€)` : ''}` : ''}`.trim();
+  if (reward) {
+    finalBookingDetails = `${finalBookingDetails}${finalBookingDetails ? ' · ' : ''}🎁 Récompense appliquée : ${reward.name}`;
+  }
+  finalBookingDetails = finalBookingDetails.slice(0, 800) || null;
 
-  await db.run('INSERT INTO bookings (id, client_id, message, slot_datetime, service_id, people_count, total_duration_minutes, booking_details, commune, commune_surcharge) VALUES (?,?,?,?,?,?,?,?,?,?)',
-    [id, req.clientId, (message || '').trim().slice(0, 500), slot_datetime || null, service_id || null, peopleCountVal, duration, finalBookingDetails, communeName, communeSurcharge]);
+  await db.run('INSERT INTO bookings (id, client_id, message, slot_datetime, service_id, people_count, total_duration_minutes, booking_details, commune, commune_surcharge, reward_id, reward_points_used) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+    [id, req.clientId, (message || '').trim().slice(0, 500), slot_datetime || null, service_id || null, peopleCountVal, duration, finalBookingDetails, communeName, communeSurcharge, reward ? reward.id : null, reward ? reward.points_required : null]);
+
+  // Déduit les points seulement maintenant que la réservation est bien créée
+  if (reward) {
+    const dbClient = await db.pool.connect();
+    try {
+      await dbClient.query('BEGIN');
+      await dbClient.query('UPDATE clients SET points = points - $1 WHERE id = $2', [reward.points_required, req.clientId]);
+      await dbClient.query('INSERT INTO visits (id, client_id, points_added, note) VALUES ($1,$2,$3,$4)',
+        [uuidv4(), req.clientId, -reward.points_required, `Récompense utilisée en ligne : ${reward.name}`]);
+      await dbClient.query('COMMIT');
+    } catch (e) {
+      await dbClient.query('ROLLBACK');
+      throw e;
+    } finally {
+      dbClient.release();
+    }
+    const updatedClient = await db.get('SELECT points FROM clients WHERE id = ?', [req.clientId]);
+    pointsEmitter.emit(`points:${req.clientId}`, { type: 'reset', points: updatedClient.points });
+  }
 
   const client = await db.get('SELECT * FROM clients WHERE id = ?', [req.clientId]);
   let serviceName = null;
