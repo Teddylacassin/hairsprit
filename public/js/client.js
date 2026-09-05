@@ -821,33 +821,73 @@ function renderDashboardTabContent() {
   }
 
   if (state.dashboardTab === 'services') {
+    const formules = state.services.filter(s => s.is_wedding);
+    const prestations = state.services.filter(s => !s.is_wedding);
+    const nextReward = (state.rewards || []).filter(r => r.points_required > state.client.points).sort((a, b) => a.points_required - b.points_required)[0];
+    function serviceIcon(name) {
+      const n = (name || '').toLowerCase();
+      if (n.includes('barbe') && !n.includes('coupe')) return '🪒';
+      if (n.includes('coupe') && n.includes('barbe')) return '💈';
+      if (n.includes('enfant') || n.includes('kid')) return '🧒';
+      if (n.includes('coiff')) return '💇';
+      return '✂️';
+    }
     zone.innerHTML = `
       <div class="section-title" style="margin-top:0;">Tarifs</div>
       ${state.services.length === 0 ? `<div class="empty-state">Aucun tarif renseigné pour le moment.</div>` : ''}
-      <div style="display:flex;flex-direction:column;gap:8px;">
-        ${state.services.map(s => s.is_wedding ? `
-          <div class="wedding-service-card">
-            <div class="wedding-service-badge">POPULAIRE</div>
-            <div class="wedding-service-top">
-              <span class="wedding-service-icon">💍</span>
-              <div>
-                <div class="wedding-service-name">${s.name}</div>
-                ${s.description ? `<div class="wedding-service-desc">${s.description}</div>` : ''}
+
+      ${nextReward ? `
+        <div style="background:var(--panel);border:1px solid var(--ligne);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:12.5px;color:var(--argent-clair);">
+          ⭐ Tu as <strong style="color:var(--blanc);">${state.client.points} points</strong> — plus que <strong style="color:var(--succes);">${nextReward.points_required - state.client.points} visite${nextReward.points_required - state.client.points > 1 ? 's' : ''}</strong> pour "${nextReward.name}"
+        </div>
+      ` : ''}
+
+      ${formules.length > 0 ? `
+        <div class="section-title" style="margin-top:0;">Formules</div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          ${formules.map(s => `
+            <div class="wedding-service-card">
+              <div class="wedding-service-badge">POPULAIRE</div>
+              <div class="wedding-service-top">
+                <span class="wedding-service-icon">💍</span>
+                <div>
+                  <div class="wedding-service-name">${s.name}</div>
+                  ${s.description ? `<div class="wedding-service-desc">${s.description}</div>` : ''}
+                </div>
               </div>
+              <div class="wedding-service-price">${parseFloat(s.price).toFixed(2)}€</div>
+              <button class="book-this-service-btn" data-service-id="${s.id}" style="width:100%;margin-top:12px;padding:11px;border:none;border-radius:10px;background:linear-gradient(135deg,#ff2ec4,#9d4dff);color:#fff;font-weight:700;font-size:12.5px;letter-spacing:0.5px;cursor:pointer;">Réserver cette formule</button>
             </div>
-            <div class="wedding-service-price">${parseFloat(s.price).toFixed(2)}€</div>
-          </div>
-        ` : `
-          <div class="history-item">
-            <div>
-              <div>${s.name}</div>
-              ${s.description ? `<div class="date">${s.description}</div>` : ''}
+          `).join('')}
+        </div>
+      ` : ''}
+
+      ${prestations.length > 0 ? `
+        <div class="section-title">Prestations</div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          ${prestations.map(s => `
+            <div class="service-card">
+              <div class="service-card-head">
+                <div class="service-card-title-row">
+                  <div class="service-card-icon">${serviceIcon(s.name)}</div>
+                  <div class="service-card-name">${s.name}</div>
+                </div>
+                <div class="service-card-price">${parseFloat(s.price).toFixed(2)}€</div>
+              </div>
+              ${s.description ? `<div class="service-card-desc">${s.description}</div>` : ''}
+              <div class="service-card-meta">
+                ${s.duration_minutes ? `<span class="service-card-tag">${s.duration_minutes} min</span>` : ''}
+                ${s.group_price ? `<span class="service-card-tag">👥 dès 3 pers. : ${parseFloat(s.group_price).toFixed(2)}€/pers.</span>` : ''}
+              </div>
+              <button class="book-this-service-btn" data-service-id="${s.id}" style="width:100%;margin-top:12px;padding:10px;border:1px solid rgba(0,229,255,0.3);border-radius:8px;background:transparent;color:var(--succes);font-weight:600;font-size:12px;cursor:pointer;">Réserver</button>
             </div>
-            <div class="pts">${parseFloat(s.price).toFixed(2)}€</div>
-          </div>
-        `).join('')}
-      </div>
+          `).join('')}
+        </div>
+      ` : ''}
     `;
+    zone.querySelectorAll('.book-this-service-btn').forEach(btn => {
+      btn.onclick = () => openBookingSheet(btn.dataset.serviceId);
+    });
     return;
   }
 
@@ -1350,7 +1390,7 @@ function openAddressSheet() {
 }
 
 /* ---------------- BOOKING SHEET ---------------- */
-function openBookingSheet() {
+function openBookingSheet(preselectedServiceId) {
   const backdrop = document.createElement('div');
   backdrop.className = 'sheet-backdrop';
   backdrop.innerHTML = `
@@ -1367,7 +1407,7 @@ function openBookingSheet() {
   let selectedDate = null; // 'YYYY-MM-DD'
   let dateRejectedMsg = null;
   let peopleCount = 1;
-  let personServiceIds = []; // personServiceIds[i] = liste des id de prestations cochées pour la personne i
+  let personServiceIds = preselectedServiceId ? [[preselectedServiceId]] : []; // personServiceIds[i] = liste des id de prestations cochées pour la personne i
   let expandedPersons = new Set([0]); // quelle(s) liste(s) de prestations sont ouvertes
   let allServices = [];
   let allSlots = []; // tous les créneaux dispos (ISO), sur 14 jours
