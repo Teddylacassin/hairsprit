@@ -1373,6 +1373,7 @@ function openBookingSheet() {
   let allSlots = []; // tous les créneaux dispos (ISO), sur 14 jours
   let allCommunes = [];
   let selectedCommuneId = null;
+  let selectedRewardId = null;
 
   function personPrice(s) {
     if (!s) return 0;
@@ -1394,8 +1395,24 @@ function openBookingSheet() {
     const c = allCommunes.find(cm => cm.id === selectedCommuneId);
     return c ? parseFloat(c.surcharge) : 0;
   }
-  function totalPrice() {
+  function subtotalPrice() {
     return personServiceIds.reduce((sum, ids) => sum + personSum(ids, 'price'), 0) + communeSurcharge();
+  }
+  function selectedReward() {
+    if (!selectedRewardId) return null;
+    return (state.rewards || []).find(r => r.id === selectedRewardId) || null;
+  }
+  function rewardDiscount() {
+    const reward = selectedReward();
+    if (!reward || !reward.discount_type) return 0;
+    const base = subtotalPrice();
+    if (reward.discount_type === 'percent') return base * (parseFloat(reward.discount_value) || 0) / 100;
+    if (reward.discount_type === 'fixed') return Math.min(base, parseFloat(reward.discount_value) || 0);
+    if (reward.discount_type === 'free') return base;
+    return 0;
+  }
+  function totalPrice() {
+    return Math.max(0, subtotalPrice() - rewardDiscount());
   }
   function personSummary(ids) {
     if (ids.length === 0) return 'Choisir les prestations';
@@ -1489,6 +1506,25 @@ function openBookingSheet() {
         </div>
       ` : ''}
 
+      ${allServices.length > 0 && personServiceIds.some(ids => ids.length > 0) && (state.rewards || []).some(r => r.discount_type && state.client.points >= r.points_required) ? `
+        <div class="section-title">🎁 Utiliser une récompense ?</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${state.rewards.filter(r => r.discount_type && state.client.points >= r.points_required).map(r => `
+            <label style="display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid ${selectedRewardId === r.id ? 'var(--succes)' : 'var(--ligne)'};border-radius:10px;padding:10px 12px;cursor:pointer;">
+              <input type="radio" name="reward-choice" class="reward-radio" value="${r.id}" ${selectedRewardId === r.id ? 'checked' : ''} />
+              <div style="flex:1;">
+                <div style="font-size:13px;font-weight:600;">${r.name}</div>
+                <div style="font-size:11px;color:var(--argent);">${r.points_required} points</div>
+              </div>
+            </label>
+          `).join('')}
+          <label style="display:flex;align-items:center;gap:10px;padding:4px 12px;cursor:pointer;">
+            <input type="radio" name="reward-choice" class="reward-radio" value="" ${!selectedRewardId ? 'checked' : ''} />
+            <span style="font-size:12.5px;color:var(--argent);">Ne pas utiliser de récompense</span>
+          </label>
+        </div>
+      ` : ''}
+
       ${allServices.length > 0 && personServiceIds.some(ids => ids.length > 0) ? `
         <div class="section-title">Récapitulatif</div>
         <div class="scanner-box" style="max-width:100%;padding:14px;">
@@ -1503,6 +1539,7 @@ function openBookingSheet() {
             </div>
           `).join('')}
           ${communeSurcharge() > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#e8b84b;"><span>Supplément commune</span><span style="font-family:var(--font-mono);">+${communeSurcharge().toFixed(2)}€</span></div>` : ''}
+          ${selectedReward() ? `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:var(--succes);"><span>🎁 ${selectedReward().name}</span><span style="font-family:var(--font-mono);">-${rewardDiscount().toFixed(2)}€</span></div>` : ''}
           <div style="display:flex;justify-content:space-between;border-top:1px solid var(--ligne);padding-top:10px;margin-top:6px;font-size:14px;font-weight:600;">
             <span>Total (${totalDuration()} min)</span>
             <span style="font-family:var(--font-mono);color:var(--succes);">${totalPrice().toFixed(2)}€</span>
@@ -1548,6 +1585,13 @@ function openBookingSheet() {
         loadAll();
       };
     }
+
+    zone.querySelectorAll('.reward-radio').forEach(radio => {
+      radio.onchange = (e) => {
+        selectedRewardId = e.target.value || null;
+        loadAll();
+      };
+    });
 
     zone.querySelectorAll('.service-toggle-btn').forEach(btn => {
       btn.onclick = () => {
@@ -1605,6 +1649,7 @@ function openBookingSheet() {
               total_duration_minutes: allServices.length > 0 ? totalDuration() : undefined,
               booking_details: allServices.length > 0 ? bookingDetailsText() : undefined,
               commune_id: selectedCommuneId || undefined,
+              reward_id: selectedRewardId || undefined,
             }),
           });
           backdrop.querySelector('.sheet').innerHTML = `
