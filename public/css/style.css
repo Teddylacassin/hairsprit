@@ -30,11 +30,13 @@ body {
   min-height: 100vh;
   padding-bottom: env(safe-area-inset-bottom);
   background:
-    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0px, rgba(255, 255, 255, 0.02) 1px, transparent 1px, transparent 26px),
-    radial-gradient(ellipse 900px 700px at 12% -10%, rgba(127, 216, 143, 0.16), transparent 55%),
-    radial-gradient(ellipse 800px 600px at 108% 22%, rgba(232, 184, 75, 0.13), transparent 55%),
-    radial-gradient(ellipse 1000px 800px at 50% 112%, rgba(224, 113, 107, 0.11), transparent 55%),
-    radial-gradient(ellipse 1400px 1100px at 50% 45%, #16161a 0%, #0a0a0b 72%);
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    radial-gradient(ellipse 1200px 900px at 20% 0%, #4a4d55, transparent 65%),
+    radial-gradient(ellipse 1000px 800px at 100% 40%, #3a3c42, transparent 65%),
+    radial-gradient(ellipse 1300px 1000px at 50% 110%, #2c2e33, transparent 65%),
+    #151619;
+  background-size: 26px 26px, 26px 26px, auto, auto, auto, auto;
   background-attachment: fixed;
   position: relative;
 }
@@ -47,6 +49,23 @@ body::before {
   opacity: 0.05;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+body::after {
+  content: '';
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 340px;
+  height: 230px;
+  transform: translate(-50%, -50%);
+  z-index: 0;
+  pointer-events: none;
+  background-image: url('/icon-mono.png');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  filter: brightness(0) invert(1);
+  opacity: 0.035;
 }
 
 #app {
@@ -296,9 +315,10 @@ a { color: inherit; }
   overflow: hidden;
 }
 .card-face.front {
-  background: linear-gradient(160deg, #0d1018 0%, #060709 70%);
-  border: 1px solid rgba(0, 229, 255, 0.28);
+  background: linear-gradient(160deg, #232529 0%, #0a0a0c 70%);
+  border: 1px solid rgba(220, 222, 228, 0.4);
   clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 22px 100%, 0 calc(100% - 22px));
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 0 30px rgba(220, 222, 228, 0.08);
 }
 .card-face.front::before {
   content: '';
@@ -306,14 +326,14 @@ a { color: inherit; }
   inset: 0;
   pointer-events: none;
   opacity: 0.5;
-  background-image: linear-gradient(rgba(0, 229, 255, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 229, 255, 0.035) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
   background-size: 22px 22px;
 }
 .card-face.front::after {
   content: '';
   position: absolute;
   left: 0; right: 0; height: 2px;
-  background: linear-gradient(90deg, transparent, #00e5ff, transparent);
+  background: linear-gradient(90deg, transparent, #ffffff, transparent);
   opacity: 0.6;
   animation: scan-move 3.5s linear infinite;
 }
@@ -322,12 +342,12 @@ a { color: inherit; }
   position: absolute;
   top: 12px; right: -30px;
   transform: rotate(45deg);
-  background: linear-gradient(135deg, #ff2ec4, #9d4dff);
+  background: linear-gradient(135deg, #e8eaee, #9a9da5);
   font-family: 'Orbitron', sans-serif;
   font-size: 7px;
   letter-spacing: 1.5px;
   padding: 2px 38px;
-  color: #fff;
+  color: #000;
   font-weight: 700;
   z-index: 3;
 }
@@ -368,7 +388,7 @@ a { color: inherit; }
   background-size: contain;
   background-repeat: no-repeat;
   background-position: center;
-  filter: brightness(0) invert(1) drop-shadow(0 0 5px rgba(0, 229, 255, 0.7));
+  filter: brightness(0) invert(1) drop-shadow(0 0 5px rgba(255, 255, 255, 0.6));
   flex-shrink: 0;
 }
 .card-logo {
@@ -377,7 +397,7 @@ a { color: inherit; }
   font-size: 16px;
   letter-spacing: 2px;
   color: #fff;
-  text-shadow: 0 0 10px rgba(0, 229, 255, 0.6);
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
 }
 .card-chip {
   width: 28px;
@@ -419,7 +439,7 @@ a { color: inherit; }
   font-weight: 800;
   line-height: 1;
   color: #fff;
-  text-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
 }
 .card-hint {
   font-size: 10px;
@@ -571,7 +591,7 @@ a { color: inherit; }
 .pole-caption {
   font-family: 'Rajdhani', sans-serif;
   font-size: 11.5px;
-  color: #00e5ff;
+  color: #e0e2e8;
   margin-top: 4px;
   font-weight: 600;
 }
