@@ -744,7 +744,6 @@ function renderDashboardTabContent() {
                 <div class="card-header-icon" style="background-image:url('/icon-mono.png');"></div>
                 <span class="card-logo">HAIRSPRIT</span>
               </div>
-              <div class="card-chip"><img src="/logo.jpg" alt="" class="card-chip-logo" /></div>
             </div>
             <div>
               <div class="card-name">${c.prenom} ${c.nom}</div>
@@ -793,16 +792,16 @@ function renderDashboardTabContent() {
         </div>
       </div>
       <div class="card-flip-note">${initials} · Carte n°${c.id.slice(0, 8).toUpperCase()}</div>
-      <a href="https://g.page/r/CRa_yp8Pnc2EEBM/review" target="_blank" rel="noopener" class="btn btn-outline" style="text-decoration:none;text-align:center;display:block;margin-bottom:10px;">
+      <a href="https://g.page/r/CRa_yp8Pnc2EEBM/review" target="_blank" rel="noopener" class="action-link-btn" style="text-decoration:none;">
         ⭐ Laisser un avis Google
       </a>
-      <a href="https://teddylacassin.github.io/hairsprit-boutique/" target="_blank" rel="noopener" class="btn btn-outline" style="text-decoration:none;text-align:center;display:block;margin-bottom:10px;">
+      <a href="https://teddylacassin.github.io/hairsprit-boutique/" target="_blank" rel="noopener" class="action-link-btn" style="text-decoration:none;">
         🛍️ Ma boutique
       </a>
-      <button class="btn btn-outline" id="open-style-profile-btn" style="text-align:center;display:block;margin-bottom:10px;">
+      <button class="action-link-btn" id="open-style-profile-btn">
         ✂️ Mes préférences coiffure
       </button>
-      <button class="btn btn-outline" id="open-referral-btn" style="text-align:center;display:block;">
+      <button class="action-link-btn" id="open-referral-btn">
         🎁 Parrainer un ami
       </button>
     `;
