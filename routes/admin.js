@@ -236,25 +236,27 @@ router.get('/rewards', requireAdminAuth, async (req, res) => {
 });
 
 router.post('/rewards', requireAdminAuth, async (req, res) => {
-  const { name, points_required, description } = req.body;
+  const { name, points_required, description, discount_type, discount_value } = req.body;
   if (!name || !points_required) return res.status(400).json({ error: 'Nom et points requis.' });
   const id = uuidv4();
   const maxOrderRow = await db.get('SELECT COALESCE(MAX(sort_order),0) as m FROM rewards');
   const maxOrder = parseInt(maxOrderRow.m, 10);
-  await db.run('INSERT INTO rewards (id, name, points_required, description, sort_order) VALUES (?,?,?,?,?)',
-    [id, name.trim(), parseInt(points_required, 10), (description || '').trim(), maxOrder + 1]);
+  await db.run('INSERT INTO rewards (id, name, points_required, description, discount_type, discount_value, sort_order) VALUES (?,?,?,?,?,?,?)',
+    [id, name.trim(), parseInt(points_required, 10), (description || '').trim(), discount_type || null, (discount_value !== undefined && discount_value !== '') ? parseFloat(discount_value) : null, maxOrder + 1]);
   res.json({ ok: true, id });
 });
 
 router.put('/rewards/:id', requireAdminAuth, async (req, res) => {
   const reward = await db.get('SELECT * FROM rewards WHERE id = ?', [req.params.id]);
   if (!reward) return res.status(404).json({ error: 'Récompense introuvable.' });
-  const { name, points_required, description, active } = req.body;
-  await db.run('UPDATE rewards SET name=?, points_required=?, description=?, active=? WHERE id=?', [
+  const { name, points_required, description, active, discount_type, discount_value } = req.body;
+  await db.run('UPDATE rewards SET name=?, points_required=?, description=?, active=?, discount_type=?, discount_value=? WHERE id=?', [
     name !== undefined ? name.trim() : reward.name,
     points_required !== undefined ? parseInt(points_required, 10) : reward.points_required,
     description !== undefined ? description.trim() : reward.description,
     active !== undefined ? (active ? 1 : 0) : reward.active,
+    discount_type !== undefined ? (discount_type || null) : reward.discount_type,
+    discount_value !== undefined ? ((discount_value === '' || discount_value === null) ? null : parseFloat(discount_value)) : reward.discount_value,
     req.params.id,
   ]);
   res.json({ ok: true });
@@ -504,21 +506,21 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
   const monthRevenueRow = await db.get(`
     SELECT COALESCE(SUM(s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)),0) as total, COUNT(*) as c
     FROM bookings b JOIN services s ON s.id = b.service_id
-    WHERE b.status = 'confirme'
+    WHERE b.status = 'confirme' AND b.slot_datetime <= now()
       AND date_trunc('month', b.slot_datetime) = date_trunc('month', now())
   `);
 
   const lastMonthRevenueRow = await db.get(`
     SELECT COALESCE(SUM(s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)),0) as total
     FROM bookings b JOIN services s ON s.id = b.service_id
-    WHERE b.status = 'confirme'
+    WHERE b.status = 'confirme' AND b.slot_datetime <= now()
       AND date_trunc('month', b.slot_datetime) = date_trunc('month', now() - interval '1 month')
   `);
 
   const avgBasketRow = await db.get(`
     SELECT COALESCE(AVG(s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)),0) as avg_price
     FROM bookings b JOIN services s ON s.id = b.service_id
-    WHERE b.status = 'confirme'
+    WHERE b.status = 'confirme' AND b.slot_datetime <= now()
   `);
 
   const monthManualRow = await db.get(`
@@ -578,7 +580,7 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
     WITH combined AS (
       SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
       FROM bookings b JOIN services s ON s.id = b.service_id
-      WHERE b.status = 'confirme'
+      WHERE b.status = 'confirme' AND b.slot_datetime <= now()
       UNION ALL
       SELECT entry_date AS rev_date, amount FROM manual_revenue
     )
@@ -590,7 +592,7 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
     WITH combined AS (
       SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
       FROM bookings b JOIN services s ON s.id = b.service_id
-      WHERE b.status = 'confirme'
+      WHERE b.status = 'confirme' AND b.slot_datetime <= now()
       UNION ALL
       SELECT entry_date AS rev_date, amount FROM manual_revenue
     )
@@ -602,7 +604,7 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
     WITH combined AS (
       SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
       FROM bookings b JOIN services s ON s.id = b.service_id
-      WHERE b.status = 'confirme'
+      WHERE b.status = 'confirme' AND b.slot_datetime <= now()
       UNION ALL
       SELECT entry_date AS rev_date, amount FROM manual_revenue
     )
@@ -929,14 +931,14 @@ router.get('/accounting', requireAdminAuth, async (req, res) => {
     : `date_trunc('month', %COL%) = date_trunc('month', now())`;
   const monthParams = monthParam ? [monthParam] : [];
 
-  // Revenus : prestations confirmées (avec suppléments éventuels)
+  // Revenus : prestations confirmées ET déjà passées (pas les RDV futurs, même confirmés)
   const bookingRows = await db.all(
     `SELECT b.slot_datetime AS d, c.prenom, c.nom, s.name AS service_name,
             (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
      FROM bookings b
      JOIN clients c ON c.id = b.client_id
      JOIN services s ON s.id = b.service_id
-     WHERE b.status = 'confirme' AND ${monthFilterSql.replace('%COL%', 'b.slot_datetime')}
+     WHERE b.status = 'confirme' AND b.slot_datetime <= now() AND ${monthFilterSql.replace('%COL%', 'b.slot_datetime')}
      ORDER BY b.slot_datetime DESC`,
     monthParams
   );
@@ -1039,63 +1041,20 @@ router.get('/accounting-settings', requireAdminAuth, async (req, res) => {
   const settings = await db.get('SELECT * FROM accounting_settings WHERE id = ?', ['default']);
   res.json({
     setasidePercent: settings ? parseFloat(settings.setaside_percent) : 25,
-    goalAmount: settings && settings.goal_amount != null ? parseFloat(settings.goal_amount) : null,
-    goalLabel: settings ? settings.goal_label : null,
-    goalStartDate: settings ? settings.goal_start_date : null,
   });
 });
 
 router.put('/accounting-settings', requireAdminAuth, async (req, res) => {
-  const { setaside_percent, goal_amount, goal_label, goal_start_date } = req.body;
+  const { setaside_percent } = req.body;
   const existing = await db.get('SELECT * FROM accounting_settings WHERE id = ?', ['default']);
   await db.run(
-    'UPDATE accounting_settings SET setaside_percent = ?, goal_amount = ?, goal_label = ?, goal_start_date = ? WHERE id = ?',
+    'UPDATE accounting_settings SET setaside_percent = ? WHERE id = ?',
     [
       setaside_percent !== undefined ? Math.max(0, Math.min(100, parseFloat(setaside_percent) || 0)) : existing.setaside_percent,
-      goal_amount !== undefined ? ((goal_amount === '' || goal_amount === null) ? null : parseFloat(goal_amount)) : existing.goal_amount,
-      goal_label !== undefined ? ((goal_label || '').trim() || null) : existing.goal_label,
-      goal_start_date !== undefined ? (goal_start_date || null) : existing.goal_start_date,
       'default',
     ]
   );
   res.json({ ok: true });
-});
-
-// GET /api/admin/accounting-goal -> progression de l'objectif d'épargne (cumul automatique depuis la date de départ)
-router.get('/accounting-goal', requireAdminAuth, async (req, res) => {
-  const settings = await db.get('SELECT * FROM accounting_settings WHERE id = ?', ['default']);
-  if (!settings || settings.goal_amount == null || !settings.goal_start_date) {
-    return res.json({ hasGoal: false });
-  }
-  const startDate = settings.goal_start_date;
-  const percent = parseFloat(settings.setaside_percent);
-
-  const revenueRow = await db.get(`
-    WITH combined AS (
-      SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
-      FROM bookings b JOIN services s ON s.id = b.service_id
-      WHERE b.status = 'confirme'
-      UNION ALL
-      SELECT entry_date AS rev_date, amount FROM manual_revenue
-    )
-    SELECT COALESCE(SUM(amount),0) as total FROM combined WHERE rev_date >= ?
-  `, [startDate]);
-  const expensesRow = await db.get(`SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE expense_date >= ?`, [startDate]);
-
-  const netSinceStart = parseFloat(revenueRow.total) - parseFloat(expensesRow.total);
-  const cumulativeSetAside = Math.max(0, netSinceStart * (percent / 100));
-  const goalAmount = parseFloat(settings.goal_amount);
-  const pct = goalAmount > 0 ? Math.min(100, (cumulativeSetAside / goalAmount) * 100) : 0;
-
-  res.json({
-    hasGoal: true,
-    goalLabel: settings.goal_label,
-    goalAmount,
-    goalStartDate: startDate,
-    cumulativeSetAside,
-    pct,
-    reached: cumulativeSetAside >= goalAmount,
-  });
 });
 
 // SYNCHRONISATION BANCAIRE (Ponto / Belfius)
