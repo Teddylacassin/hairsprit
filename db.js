@@ -241,6 +241,12 @@ async function initDb() {
   await pool.query(`ALTER TABLE rewards ADD COLUMN IF NOT EXISTS discount_value NUMERIC;`);
   await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reward_id TEXT;`);
   await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reward_points_used INTEGER;`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS backup_state (
+      id TEXT PRIMARY KEY,
+      last_sent_date DATE
+    );
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS live_trip (
