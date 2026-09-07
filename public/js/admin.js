@@ -1323,6 +1323,9 @@ async function renderBookingsTab(main) {
   const visibleBookings = state.bookings.filter(b => b.status !== 'annule');
 
   main.innerHTML = `
+    <button class="btn btn-primary" id="open-quick-booking-btn" style="margin-bottom:18px;">⚡ Réservation rapide (client par téléphone)</button>
+    <div id="quick-booking-zone"></div>
+
     <div class="section-title" style="margin-top:0;">Horaires d'ouverture</div>
     <div class="scanner-box" style="max-width:100%;">
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
@@ -1596,6 +1599,76 @@ async function renderBookingsTab(main) {
         renderBookingsTab(main);
       } catch (err) { alert(err.message); btn.disabled = false; }
     };
+  });
+
+  main.querySelector('#open-quick-booking-btn').onclick = () => openQuickBookingPanel(main);
+}
+
+function openQuickBookingPanel(main) {
+  const zone = main.querySelector('#quick-booking-zone');
+  if (zone.innerHTML.trim()) { zone.innerHTML = ''; return; }
+
+  api('/services').then(res => {
+    const services = res.services.filter(s => s.active);
+    zone.innerHTML = `
+      <div class="scanner-box" style="max-width:100%;margin-bottom:18px;">
+        <div class="section-title" style="margin-top:0;">⚡ Réservation rapide</div>
+        <div class="sub" style="color:var(--argent);font-size:11.5px;margin-bottom:12px;">Si le client n'existe pas encore (nouveau numéro), il est créé automatiquement. Le RDV est confirmé directement.</div>
+        <div class="field"><label>Prénom</label><input id="qb-prenom" placeholder="Karim" /></div>
+        <div class="field"><label>Nom</label><input id="qb-nom" placeholder="Haddad" /></div>
+        <div class="field"><label>Téléphone</label><input id="qb-telephone" type="tel" placeholder="0494 55 01 12" /></div>
+        <div class="field"><label>Adresse (optionnel)</label><input id="qb-address" placeholder="12 rue des Lilas" /></div>
+        <div class="field">
+          <label>Prestation (optionnel)</label>
+          <select id="qb-service" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:11px 12px;border-radius:8px;font-size:14px;">
+            <option value="">— Aucune —</option>
+            ${services.map(s => `<option value="${s.id}">${s.name} (${parseFloat(s.price).toFixed(2)}€)</option>`).join('')}
+          </select>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <div class="field" style="flex:1;"><label>Date</label><input id="qb-date" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+          <div class="field" style="flex:1;"><label>Heure</label><input id="qb-time" type="time" value="14:00" /></div>
+        </div>
+        <div class="field"><label>Note (optionnel)</label><textarea id="qb-message" rows="2" placeholder="Détails..."></textarea></div>
+        <div id="qb-error"></div>
+        <button class="btn btn-primary" id="qb-submit-btn">✓ Créer et réserver</button>
+      </div>
+    `;
+
+    zone.querySelector('#qb-submit-btn').onclick = async () => {
+      const btn = zone.querySelector('#qb-submit-btn');
+      const prenom = zone.querySelector('#qb-prenom').value.trim();
+      const nom = zone.querySelector('#qb-nom').value.trim();
+      const telephone = zone.querySelector('#qb-telephone').value.trim();
+      const address = zone.querySelector('#qb-address').value.trim();
+      const service_id = zone.querySelector('#qb-service').value;
+      const date = zone.querySelector('#qb-date').value;
+      const time = zone.querySelector('#qb-time').value;
+      const message = zone.querySelector('#qb-message').value.trim();
+
+      if (!prenom || !nom || !telephone || !date || !time) {
+        zone.querySelector('#qb-error').innerHTML = `<div class="error-msg">Prénom, nom, téléphone et créneau sont requis.</div>`;
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Création...';
+      try {
+        const slot_datetime = new Date(`${date}T${time}:00`).toISOString();
+        const result = await api('/bookings/quick', {
+          method: 'POST',
+          body: JSON.stringify({ prenom, nom, telephone, address, service_id: service_id || undefined, slot_datetime, message }),
+        });
+        zone.innerHTML = `<div class="success-msg" style="margin-bottom:18px;">✓ ${result.isNewClient ? 'Nouveau client créé et ' : ''}RDV confirmé pour ${prenom} ${nom} !</div>`;
+        renderBookingsTab(main);
+      } catch (err) {
+        zone.querySelector('#qb-error').innerHTML = `<div class="error-msg">${err.message}</div>`;
+        btn.disabled = false;
+        btn.textContent = '✓ Créer et réserver';
+      }
+    };
+  }).catch(err => {
+    zone.innerHTML = `<div class="error-msg">${err.message}</div>`;
   });
 }
 
