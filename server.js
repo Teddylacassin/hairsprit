@@ -1,81 +1,51 @@
-// Sauvegarde automatique quotidienne de toute la base de données.
-// Envoie un export JSON complet par email, en pièce jointe — indépendant de Neon
-// (qui ne garde que 6h d'historique en plan gratuit). Permet de restaurer les données
-// manuellement en cas de gros problème (suppression accidentelle, corruption, etc.).
-const db = require('./db');
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const dns = require('dns');
 
-const TABLES = [
-  'clients', 'visits', 'rewards', 'services', 'products', 'orders', 'order_items',
-  'bookings', 'manual_revenue', 'schedule_settings', 'blocked_dates', 'blocked_slots',
-  'reviews', 'admins', 'client_style_profile', 'client_style_photos', 'urgent_availability',
-  'expenses', 'communes', 'live_trip', 'accounting_settings', 'bank_transactions',
-];
+// Corrige un souci fréquent sur les serveurs Docker/VPS (comme Hetzner) où une
+// mauvaise configuration IPv6 fait planter les connexions sortantes (ex: vers l'API Ponto)
+dns.setDefaultResultOrder('ipv4first');
 
-async function generateBackup() {
-  const backup = { generated_at: new Date().toISOString(), tables: {} };
-  for (const table of TABLES) {
-    try {
-      backup.tables[table] = await db.all(`SELECT * FROM ${table}`);
-    } catch (e) {
-      backup.tables[table] = { error: e.message };
-    }
-  }
-  return backup;
-}
+const { initDb } = require('./db');
+const { startReminderScheduler } = require('./reminders');
+const { startBankSyncScheduler } = require('./bankSync');
+const { startAppointmentReminderScheduler } = require('./appointmentReminders');
+const { startBackupScheduler } = require('./backup');
 
-async function sendBackupEmail() {
-  const apiKey = process.env.RESEND_API_KEY;
-  const toEmail = process.env.NOTIFY_EMAIL;
-  if (!apiKey || !toEmail) {
-    console.log('[Hairsprit] Sauvegarde non envoyée : RESEND_API_KEY ou NOTIFY_EMAIL manquant.');
-    return;
-  }
+const clientRoutes = require('./routes/client');
+const adminRoutes = require('./routes/admin');
 
-  const backup = await generateBackup();
-  const jsonStr = JSON.stringify(backup, null, 2);
-  const base64Content = Buffer.from(jsonStr, 'utf-8').toString('base64');
-  const sizeMB = (base64Content.length / (1024 * 1024)).toFixed(2);
-  const dateStr = new Date().toISOString().slice(0, 10);
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-  const totalRows = Object.values(backup.tables).reduce((sum, rows) => sum + (Array.isArray(rows) ? rows.length : 0), 0);
+app.use(cors());
+app.use(express.json({ limit: '8mb' }));
 
-  const html = `
-    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
-      <h2 style="margin-bottom:4px;">💾 Sauvegarde quotidienne Hairsprit</h2>
-      <p style="color:#555;">Export complet de ta base de données du ${dateStr}, en pièce jointe (fichier JSON).</p>
-      <p style="color:#555;">${totalRows} lignes au total, ${sizeMB} Mo.</p>
-      <p style="color:#999;font-size:12px;margin-top:20px;">Garde cet email de côté — en cas de gros problème, ce fichier permet de récupérer toutes tes données (clients, réservations, comptabilité...).</p>
-    </div>
-  `;
+app.use('/api/client', clientRoutes);
+app.use('/api/admin', adminRoutes);
 
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: 'Hairsprit <contact@mail.hairsprit.be>',
-        to: [toEmail],
-        subject: `💾 Sauvegarde Hairsprit — ${dateStr}`,
-        html,
-        attachments: [
-          { content: base64Content, filename: `hairsprit-backup-${dateStr}.json` },
-        ],
-      }),
+app.get('/api/health', (req, res) => res.json({ ok: true, app: 'Hairsprit Fidélité' }));
+
+// Static frontend
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Alias explicite : /app ouvre la même carte de fidélité que la racine
+app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+
+initDb()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`✂️  Hairsprit Fidélité en ligne sur http://localhost:${PORT}`);
     });
-    if (!res.ok) {
-      console.error('[Hairsprit] Erreur envoi sauvegarde:', res.status, await res.text());
-    } else {
-      console.log(`[Hairsprit] Sauvegarde envoyée avec succès (${totalRows} lignes, ${sizeMB} Mo).`);
-    }
-  } catch (e) {
-    console.error('[Hairsprit] Erreur envoi sauvegarde:', e.message);
-  }
-}
-
-function startBackupScheduler() {
-  // Une première sauvegarde 3 minutes après le démarrage, puis une fois toutes les 24h.
-  setTimeout(() => { sendBackupEmail().catch(e => console.error(e)); }, 3 * 60 * 1000);
-  setInterval(() => { sendBackupEmail().catch(e => console.error(e)); }, 24 * 60 * 60 * 1000);
-}
-
-module.exports = { generateBackup, sendBackupEmail, startBackupScheduler };
+    startReminderScheduler();
+    startBankSyncScheduler();
+    startAppointmentReminderScheduler();
+    startBackupScheduler();
+  })
+  .catch((err) => {
+    console.error('Erreur lors de l\'initialisation de la base de données :', err);
+    process.exit(1);
+  });
