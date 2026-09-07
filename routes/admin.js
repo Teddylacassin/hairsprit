@@ -436,7 +436,36 @@ router.post('/bookings', requireAdminAuth, async (req, res) => {
   res.json({ ok: true, id });
 });
 
-// POST /api/admin/bookings/wedding -> crée la formule mariage : 2 RDV liés (essai + jour J) + acompte
+// POST /api/admin/bookings/quick -> crée le client s'il n'existe pas (via téléphone) + réserve directement
+router.post('/bookings/quick', requireAdminAuth, async (req, res) => {
+  const { nom, prenom, telephone, address, service_id, slot_datetime, message } = req.body;
+  if (!nom || !prenom || !telephone || !slot_datetime) {
+    return res.status(400).json({ error: 'Nom, prénom, téléphone et créneau sont obligatoires.' });
+  }
+  const tel = String(telephone).replace(/[\s.\-()]/g, '');
+  if (tel.length < 8) return res.status(400).json({ error: 'Numéro de téléphone invalide.' });
+
+  const existingSlot = await db.get(`SELECT id FROM bookings WHERE slot_datetime = ? AND status != 'annule'`, [slot_datetime]);
+  if (existingSlot) return res.status(409).json({ error: 'Ce créneau est déjà pris.' });
+
+  let client = await db.get('SELECT * FROM clients WHERE telephone = ?', [tel]);
+  let isNewClient = false;
+  if (!client) {
+    isNewClient = true;
+    const clientId = uuidv4();
+    const qrToken = uuidv4();
+    await db.run('INSERT INTO clients (id, nom, prenom, telephone, address, qr_token, points) VALUES (?,?,?,?,?,?,0)',
+      [clientId, nom.trim(), prenom.trim(), tel, (address || '').trim() || null, qrToken]);
+    client = await db.get('SELECT * FROM clients WHERE id = ?', [clientId]);
+  }
+
+  const bookingId = uuidv4();
+  await db.run('INSERT INTO bookings (id, client_id, message, slot_datetime, service_id, status) VALUES (?,?,?,?,?,?)',
+    [bookingId, client.id, (message || '').trim().slice(0, 500), slot_datetime, service_id || null, 'confirme']);
+
+  res.json({ ok: true, bookingId, clientId: client.id, isNewClient });
+});
+
 router.post('/bookings/wedding', requireAdminAuth, async (req, res) => {
   const { client_id, service_id, essai_datetime, jour_j_datetime, deposit_amount, message } = req.body;
   if (!client_id || !service_id || !essai_datetime || !jour_j_datetime) {
