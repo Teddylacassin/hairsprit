@@ -72,10 +72,26 @@ async function sendBackupEmail() {
   }
 }
 
-function startBackupScheduler() {
-  // Une première sauvegarde 3 minutes après le démarrage, puis une fois toutes les 24h.
-  setTimeout(() => { sendBackupEmail().catch(e => console.error(e)); }, 3 * 60 * 1000);
-  setInterval(() => { sendBackupEmail().catch(e => console.error(e)); }, 24 * 60 * 60 * 1000);
+async function checkAndSendDailyBackup() {
+  const today = new Date().toISOString().slice(0, 10);
+  const state = await db.get('SELECT * FROM backup_state WHERE id = ?', ['default']);
+  const lastSent = state && state.last_sent_date ? new Date(state.last_sent_date).toISOString().slice(0, 10) : null;
+  if (lastSent === today) return; // déjà envoyée aujourd'hui, on ne renvoie pas
+
+  await sendBackupEmail();
+
+  if (state) {
+    await db.run('UPDATE backup_state SET last_sent_date = ? WHERE id = ?', [today, 'default']);
+  } else {
+    await db.run('INSERT INTO backup_state (id, last_sent_date) VALUES (?,?)', ['default', today]);
+  }
 }
 
-module.exports = { generateBackup, sendBackupEmail, startBackupScheduler };
+function startBackupScheduler() {
+  // Vérifie toutes les 30 minutes si la sauvegarde du jour a déjà été envoyée.
+  // Résiste aux redémarrages/redéploiements fréquents : jamais plus d'une sauvegarde par jour.
+  checkAndSendDailyBackup().catch(e => console.error(e));
+  setInterval(() => { checkAndSendDailyBackup().catch(e => console.error(e)); }, 30 * 60 * 1000);
+}
+
+module.exports = { generateBackup, sendBackupEmail, checkAndSendDailyBackup, startBackupScheduler };
