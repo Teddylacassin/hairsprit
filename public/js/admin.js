@@ -1820,10 +1820,31 @@ async function renderAccountingTab(main) {
         </div>
       `).join('')}
     </div>
+
+    <div class="section-title">Sauvegarde</div>
+    <div class="scanner-box" style="max-width:100%;">
+      <div class="sub" style="color:var(--argent);font-size:11.5px;margin-bottom:12px;">Une sauvegarde complète de toutes tes données est envoyée automatiquement par email chaque jour. Tu peux aussi en déclencher une maintenant pour vérifier que ça fonctionne.</div>
+      <button class="btn btn-outline" id="backup-now-btn">💾 Tester la sauvegarde maintenant</button>
+      <div id="backup-msg"></div>
+    </div>
   `;
 
   main.querySelector('#acct-prev').onclick = () => { state.accountingMonth = shiftMonth(state.accountingMonth, -1); renderAccountingTab(main); };
   main.querySelector('#acct-next').onclick = () => { state.accountingMonth = shiftMonth(state.accountingMonth, 1); renderAccountingTab(main); };
+
+  main.querySelector('#backup-now-btn').onclick = async () => {
+    const btn = main.querySelector('#backup-now-btn');
+    btn.disabled = true;
+    btn.textContent = 'Envoi en cours...';
+    try {
+      await api('/backup/send-now', { method: 'POST' });
+      main.querySelector('#backup-msg').innerHTML = `<div class="success-msg">✓ Sauvegarde envoyée ! Vérifie ta boîte mail.</div>`;
+    } catch (err) {
+      main.querySelector('#backup-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
+    }
+    btn.disabled = false;
+    btn.textContent = '💾 Tester la sauvegarde maintenant';
+  };
 
   main.querySelector('#acct-edit-percent-btn').onclick = async () => {
     const newPercent = prompt('Pourcentage à mettre de côté (cotisations, impôts...) :', data.setasidePercent);
