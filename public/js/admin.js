@@ -1827,6 +1827,15 @@ async function renderAccountingTab(main) {
       <button class="btn btn-outline" id="backup-now-btn">💾 Tester la sauvegarde maintenant</button>
       <div id="backup-msg"></div>
     </div>
+
+    <div class="section-title">Restaurer une sauvegarde</div>
+    <div class="scanner-box" style="max-width:100%;">
+      <div class="sub" style="color:var(--argent);font-size:11.5px;margin-bottom:12px;">⚠️ À utiliser uniquement en cas de gros problème (données perdues ou corrompues). Choisis le fichier .json reçu par email — ça réinjecte les données sans jamais dupliquer ce qui existe déjà.</div>
+      <div class="field"><label>Fichier de sauvegarde (.json)</label><input type="file" id="restore-file-input" accept="application/json" /></div>
+      <div class="field"><label>Pour confirmer, tape RESTAURER en majuscules</label><input type="text" id="restore-confirm-input" placeholder="RESTAURER" /></div>
+      <button class="btn btn-danger" id="restore-backup-btn">Restaurer cette sauvegarde</button>
+      <div id="restore-msg"></div>
+    </div>
   `;
 
   main.querySelector('#acct-prev').onclick = () => { state.accountingMonth = shiftMonth(state.accountingMonth, -1); renderAccountingTab(main); };
@@ -1844,6 +1853,38 @@ async function renderAccountingTab(main) {
     }
     btn.disabled = false;
     btn.textContent = '💾 Tester la sauvegarde maintenant';
+  };
+
+  main.querySelector('#restore-backup-btn').onclick = async () => {
+    const btn = main.querySelector('#restore-backup-btn');
+    const fileInput = main.querySelector('#restore-file-input');
+    const confirmVal = main.querySelector('#restore-confirm-input').value;
+    const msgZone = main.querySelector('#restore-msg');
+
+    if (confirmVal !== 'RESTAURER') {
+      msgZone.innerHTML = `<div class="error-msg">Tape exactement RESTAURER pour confirmer.</div>`;
+      return;
+    }
+    if (!fileInput.files || fileInput.files.length === 0) {
+      msgZone.innerHTML = `<div class="error-msg">Choisis d'abord un fichier de sauvegarde.</div>`;
+      return;
+    }
+    if (!confirm('Es-tu bien sûr de vouloir restaurer cette sauvegarde ? Cette action va réinjecter toutes les données du fichier.')) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Lecture du fichier...';
+    try {
+      const fileText = await fileInput.files[0].text();
+      const backup = JSON.parse(fileText);
+      btn.textContent = 'Restauration en cours...';
+      const result = await api('/backup/restore', { method: 'POST', body: JSON.stringify({ confirm: 'RESTAURER', backup }) });
+      const details = Object.entries(result.summary).map(([table, count]) => `${table}: ${count}`).join(', ');
+      msgZone.innerHTML = `<div class="success-msg">✓ Restauration terminée !<br><span style="font-size:11px;color:var(--argent);">${details}</span></div>`;
+    } catch (err) {
+      msgZone.innerHTML = `<div class="error-msg">${err.message}</div>`;
+    }
+    btn.disabled = false;
+    btn.textContent = 'Restaurer cette sauvegarde';
   };
 
   main.querySelector('#acct-edit-percent-btn').onclick = async () => {
