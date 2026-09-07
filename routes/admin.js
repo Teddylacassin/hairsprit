@@ -1171,4 +1171,23 @@ router.post('/backup/send-now', requireAdminAuth, async (req, res) => {
   }
 });
 
+// POST /api/admin/backup/restore -> réinjecte une sauvegarde (upsert, jamais de doublon)
+router.post('/backup/restore', requireAdminAuth, async (req, res) => {
+  const { confirm, backup } = req.body;
+  if (confirm !== 'RESTAURER') {
+    return res.status(400).json({ error: 'Confirmation manquante ou incorrecte.' });
+  }
+  if (!backup) {
+    return res.status(400).json({ error: 'Fichier de sauvegarde manquant.' });
+  }
+  try {
+    const { restoreBackup } = require('../backup');
+    const summary = await restoreBackup(backup);
+    res.json({ ok: true, summary });
+  } catch (e) {
+    console.error('[Hairsprit] Erreur restauration:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
