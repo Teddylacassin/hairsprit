@@ -1160,4 +1160,15 @@ router.get('/network-test', async (req, res) => {
   res.json({ results });
 });
 
+// POST /api/admin/backup/send-now -> déclenche une sauvegarde immédiate (test manuel)
+router.post('/backup/send-now', requireAdminAuth, async (req, res) => {
+  try {
+    const { sendBackupEmail } = require('../backup');
+    await sendBackupEmail();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
