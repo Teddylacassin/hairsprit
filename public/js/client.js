@@ -452,15 +452,39 @@ function renderAuthRegister() {
   };
 }
 
-/* ---------------- TEMPS RÉEL (nouveau tampon en direct) ---------------- */
+/* ---------------- TEMPS RÉEL (nouveau tampon, vérifié toutes les 5s) ---------------- */
+// Remplace l'ancien système SSE (EventSource), qui ne traversait pas bien
+// certaines configurations de serveur/proxy — ici on vérifie simplement
+// périodiquement si les points ont changé, c'est moins instantané (max 5s de délai)
+// mais beaucoup plus fiable quel que soit l'hébergeur.
 function connectPointsStream() {
-  if (state.eventSource) return; // déjà connecté
+  if (state.pointsPollInterval) return; // déjà en cours
+
+  // Filet de sécurité fiable : vérifie toutes les 5s, marche quel que soit le serveur.
+  state.pointsPollInterval = setInterval(async () => {
+    if (!state.token || !state.client) return;
+    try {
+      const res = await api('/me');
+      const newPoints = res.client.points;
+      if (newPoints > state.client.points) {
+        state.client.points = newPoints;
+        playStampCelebration();
+        if (state.dashboardTab === 'card') renderDashboardTabContent();
+      } else if (newPoints !== state.client.points) {
+        state.client.points = newPoints;
+        if (state.dashboardTab === 'card') renderDashboardTabContent();
+      }
+    } catch (e) { /* silent, on retentera au prochain cycle */ }
+  }, 5000);
+
+  // En plus, on tente une connexion instantanée (si elle marche sur ce serveur,
+  // les mises à jour arrivent immédiatement ; sinon, le sondage ci-dessus prend le relais).
   try {
     const es = new EventSource(`${API}/points-stream?token=${encodeURIComponent(state.token)}`);
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
-        if (data.type === 'point_added') {
+        if (data.type === 'point_added' && data.points > state.client.points) {
           state.client.points = data.points;
           playStampCelebration();
           if (state.dashboardTab === 'card') renderDashboardTabContent();
@@ -470,11 +494,9 @@ function connectPointsStream() {
         }
       } catch (err) { /* silent */ }
     };
-    es.onerror = () => {
-      // La connexion se rétablit automatiquement ; rien à faire ici.
-    };
+    es.onerror = () => { /* le sondage à 5s prend déjà le relais, rien à faire */ };
     state.eventSource = es;
-  } catch (e) { /* EventSource non disponible, tant pis */ }
+  } catch (e) { /* EventSource non disponible, le sondage à 5s suffit */ }
 }
 
 function playStampCelebration() {
@@ -672,6 +694,7 @@ function renderDashboard() {
   });
   document.getElementById('edit-address-btn').onclick = openAddressSheet;
   document.getElementById('logout-btn').onclick = () => {
+    if (state.pointsPollInterval) { clearInterval(state.pointsPollInterval); state.pointsPollInterval = null; }
     if (state.eventSource) { state.eventSource.close(); state.eventSource = null; }
     stopTripPolling();
     clearToken();
