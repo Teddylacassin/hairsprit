@@ -1416,5 +1416,38 @@ tr:last-child td { border-bottom: none; }
   color: var(--argent);
   font-size: 12.5px;
 }
+.trip-call-btn {
+  background: linear-gradient(135deg, #00e5ff, #9d4dff);
+  color: #000;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.trip-van-rotate {
+  display: inline-block;
+  transition: transform 0.6s ease;
+}
+.trip-arrival-alert {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #00e5ff, #9d4dff);
+  color: #000;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  z-index: 999;
+  animation: trip-alert-in 0.3s ease;
+}
+@keyframes trip-alert-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
 .pill.status-prete { color: #00e5ff; border-color: rgba(0, 229, 255, 0.4); }
 .pill.status-recuperee { color: var(--argent-clair); border-color: var(--ligne); }
