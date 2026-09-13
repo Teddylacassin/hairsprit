@@ -1024,6 +1024,33 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function bearingDeg(lat1, lng1, lat2, lng2) {
+  const toRad = d => d * Math.PI / 180;
+  const toDeg = r => r * 180 / Math.PI;
+  const y = Math.sin(toRad(lng2 - lng1)) * Math.cos(toRad(lat2));
+  const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lng2 - lng1));
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+// Calcule le vrai itinéraire routier (pas à vol d'oiseau) via OSRM, gratuit et sans clé.
+// En cas d'échec (service indisponible), on revient au calcul à vol d'oiseau habituel.
+async function fetchRoadRoute(lat1, lng1, lat2, lng2) {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) return null;
+    const route = data.routes[0];
+    return {
+      coords: route.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
+      durationMin: Math.max(1, Math.round(route.duration / 60)),
+      distanceKm: route.distance / 1000,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 function startTripPolling() {
   if (tripPollTimer !== null) return;
   tripPollTimer = setInterval(() => {
@@ -1036,7 +1063,12 @@ function stopTripPolling() {
   tripLeafletMap = null;
   tripBarberMarker = null;
   tripHomeMarker = null;
+  tripRoutePolyline = null;
+  tripLastEtaAlertShown = false;
 }
+
+let tripRoutePolyline = null;
+let tripLastEtaAlertShown = false;
 
 async function renderTripSection() {
   const container = document.getElementById('trip-section');
@@ -1049,17 +1081,41 @@ async function renderTripSection() {
   if (!trip.active || trip.barberLat == null) {
     container.innerHTML = '';
     tripLeafletMap = null;
+    tripRoutePolyline = null;
+    tripLastEtaAlertShown = false;
     return;
   }
 
   let etaText = null;
+  let etaMin = null;
   let distText = null;
+  let route = null;
   if (trip.homeLat != null && trip.homeLng != null) {
-    const distKm = haversineKm(trip.barberLat, trip.barberLng, trip.homeLat, trip.homeLng);
-    const etaMin = Math.max(1, Math.round((distKm / 25) * 60)); // vitesse moyenne estimée 25 km/h en ville
-    etaText = `~${etaMin} min`;
-    distText = `${distKm.toFixed(1)} km`;
+    route = await fetchRoadRoute(trip.barberLat, trip.barberLng, trip.homeLat, trip.homeLng);
+    if (route) {
+      etaMin = route.durationMin;
+      etaText = `~${etaMin} min`;
+      distText = `${route.distanceKm.toFixed(1)} km (route)`;
+    } else {
+      // repli si le calcul d'itinéraire échoue : estimation à vol d'oiseau
+      const distKm = haversineKm(trip.barberLat, trip.barberLng, trip.homeLat, trip.homeLng);
+      etaMin = Math.max(1, Math.round((distKm / 25) * 60));
+      etaText = `~${etaMin} min`;
+      distText = `${distKm.toFixed(1)} km`;
+    }
   }
+
+  // Alerte "j'arrive bientôt", affichée une seule fois par trajet
+  if (etaMin != null && etaMin <= 5 && !tripLastEtaAlertShown) {
+    tripLastEtaAlertShown = true;
+    const alertBanner = document.createElement('div');
+    alertBanner.className = 'trip-arrival-alert';
+    alertBanner.textContent = '🚐 Teddy arrive dans moins de 5 minutes !';
+    document.body.appendChild(alertBanner);
+    setTimeout(() => alertBanner.remove(), 6000);
+  }
+
+  const barberPhoneHref = 'tel:+32494550112';
 
   if (!tripLeafletMap) {
     container.innerHTML = `
@@ -1071,25 +1127,44 @@ async function renderTripSection() {
               <div class="trip-eta-label">Arrivée estimée</div>
               <div class="trip-eta-big" id="trip-eta-text">${etaText || 'Calcul...'}</div>
             </div>
-            ${distText ? `<div class="trip-dist-sub">${distText}</div>` : ''}
+            ${distText ? `<div class="trip-dist-sub" id="trip-dist-text">${distText}</div>` : ''}
           </div>
-          <div class="trip-dist-sub" style="margin-top:6px;">🚐 Teddy est en route vers toi</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;">
+            <div class="trip-dist-sub">🚐 Teddy est en route vers toi</div>
+            <a href="${barberPhoneHref}" class="trip-call-btn">📞 Appeler</a>
+          </div>
         </div>
       </div>
     `;
     tripLeafletMap = L.map('trip-leaflet-map', { zoomControl: false, attributionControl: false }).setView([trip.barberLat, trip.barberLng], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(tripLeafletMap);
-    const vanIcon = L.divIcon({ html: '🚐', className: 'trip-emoji-icon', iconSize: [30, 30] });
+    const vanIcon = L.divIcon({ html: '<div class="trip-van-rotate">🚐</div>', className: 'trip-emoji-icon', iconSize: [30, 30] });
     tripBarberMarker = L.marker([trip.barberLat, trip.barberLng], { icon: vanIcon }).addTo(tripLeafletMap);
     if (trip.homeLat != null && trip.homeLng != null) {
       const homeIcon = L.divIcon({ html: '📍', className: 'trip-emoji-icon', iconSize: [26, 26] });
       tripHomeMarker = L.marker([trip.homeLat, trip.homeLng], { icon: homeIcon }).addTo(tripLeafletMap);
-      tripLeafletMap.fitBounds([[trip.barberLat, trip.barberLng], [trip.homeLat, trip.homeLng]], { padding: [30, 30] });
+      if (route && route.coords.length > 1) {
+        tripRoutePolyline = L.polyline(route.coords, { color: '#00e5ff', weight: 4, opacity: 0.8 }).addTo(tripLeafletMap);
+        tripLeafletMap.fitBounds(tripRoutePolyline.getBounds(), { padding: [30, 30] });
+      } else {
+        tripLeafletMap.fitBounds([[trip.barberLat, trip.barberLng], [trip.homeLat, trip.homeLng]], { padding: [30, 30] });
+      }
     }
   } else {
     tripBarberMarker.setLatLng([trip.barberLat, trip.barberLng]);
+    const vanDiv = tripBarberMarker.getElement()?.querySelector('.trip-van-rotate');
+    if (vanDiv && trip.homeLat != null) {
+      const angle = bearingDeg(trip.barberLat, trip.barberLng, trip.homeLat, trip.homeLng);
+      vanDiv.style.transform = `rotate(${angle}deg)`;
+    }
     const etaEl = document.getElementById('trip-eta-text');
     if (etaEl && etaText) etaEl.textContent = etaText;
+    const distEl = document.getElementById('trip-dist-text');
+    if (distEl && distText) distEl.textContent = distText;
+    if (route && route.coords.length > 1) {
+      if (tripRoutePolyline) tripRoutePolyline.setLatLngs(route.coords);
+      else tripRoutePolyline = L.polyline(route.coords, { color: '#00e5ff', weight: 4, opacity: 0.8 }).addTo(tripLeafletMap);
+    }
   }
 }
 
