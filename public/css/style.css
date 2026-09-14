@@ -300,7 +300,7 @@ a { color: inherit; }
 .loyalty-card {
   position: relative;
   width: 100%;
-  height: 282px;
+  aspect-ratio: 1.586 / 1;
   cursor: pointer;
   transform-style: preserve-3d;
   transition: transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1);
@@ -312,7 +312,7 @@ a { color: inherit; }
   position: absolute;
   inset: 0;
   backface-visibility: hidden;
-  padding: 20px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -334,15 +334,16 @@ a { color: inherit; }
   background-image: linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
   background-size: 22px 22px;
 }
-.card-face.front::after {
-  content: '';
+.holo-sheen {
   position: absolute;
-  left: 0; right: 0; height: 2px;
-  background: linear-gradient(90deg, transparent, #ffffff, transparent);
-  opacity: 0.6;
-  animation: scan-move 3.5s linear infinite;
+  inset: -60%;
+  z-index: 1;
+  pointer-events: none;
+  background: conic-gradient(from 0deg, transparent, rgba(0, 229, 255, 0.28), transparent 30%, rgba(255, 46, 196, 0.22), transparent 60%, rgba(157, 77, 255, 0.22), transparent);
+  animation: holo-rotate 5s linear infinite;
+  mix-blend-mode: screen;
 }
-@keyframes scan-move { 0% { top: 0%; } 100% { top: 100%; } }
+@keyframes holo-rotate { to { transform: rotate(360deg); } }
 .card-corner-tag {
   position: absolute;
   top: 12px; right: -30px;
@@ -462,130 +463,47 @@ a { color: inherit; }
 }
 
 /* ---------------- CAMIONNETTE HAIRSPRIT (progression fidélité, style gaming) ---------------- */
-.path-wrap {
-  position: relative;
-  height: 38px;
-  margin: 4px 0 2px;
-  z-index: 2;
+.progress-header {
+  text-align: center;
+  margin-bottom: 10px;
 }
-.path-line {
-  position: absolute;
-  top: 22px;
-  left: 4px;
-  right: 4px;
-  height: 2px;
-  background-image: linear-gradient(to right, rgba(0, 229, 255, 0.3) 50%, transparent 0%);
-  background-size: 8px 2px;
-  background-repeat: repeat-x;
+.progress-text {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e0e2e8;
 }
-.path-progress {
-  position: absolute;
-  top: 22px;
-  left: 4px;
-  height: 2px;
-  background: linear-gradient(90deg, #9d4dff, #00e5ff);
-  box-shadow: 0 0 8px rgba(0, 229, 255, 0.8);
-  transition: width 0.8s cubic-bezier(0.34, 1.2, 0.64, 1);
-}
-.milestone {
-  position: absolute;
-  top: 18px;
-  width: 9px;
-  height: 9px;
-  background: #050609;
-  border: 2px solid rgba(0, 229, 255, 0.3);
-  transform: translateX(-50%) rotate(45deg);
-  transition: border-color 0.4s ease, background 0.4s ease;
-}
-.milestone.reached {
-  background: #00e5ff;
-  border-color: #00e5ff;
-  box-shadow: 0 0 8px rgba(0, 229, 255, 0.9);
-}
-.house {
-  position: absolute;
-  top: 0px;
-  right: -6px;
-  font-size: 18px;
-  filter: drop-shadow(0 0 6px rgba(157, 77, 255, 0.8));
-}
-.puff {
-  position: absolute;
-  top: 18px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #00e5ff;
-  opacity: 0;
-}
-.puff1 { animation: puff-pop 0.7s ease-out infinite; }
-.puff2 { width: 4px; height: 4px; animation: puff-pop 0.7s ease-out infinite 0.25s; }
-@keyframes puff-pop {
-  0% { opacity: 0.5; transform: translate(0, 0) scale(1); }
-  100% { opacity: 0; transform: translate(-14px, -8px) scale(0.4); }
-}
-.van {
-  position: absolute;
-  top: 0;
-  width: 28px;
-  height: 20px;
-  transform: translateX(-50%);
-  filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.7));
-}
-.van.driving { animation: shake 0.25s linear infinite; }
-@keyframes shake {
-  0%, 100% { transform: translateX(-50%) translateY(0); }
-  50% { transform: translateX(-50%) translateY(-1.5px); }
-}
-.van svg { width: 100%; height: 100%; overflow: visible; }
-.wheel { transform-origin: center; animation: spin 0.4s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.van.happy { animation: van-bounce 0.45s ease-in-out infinite; }
-@keyframes van-bounce {
-  0%, 100% { transform: translateX(-50%) translateY(0) rotate(0deg); }
-  50% { transform: translateX(-50%) translateY(-6px) rotate(-3deg); }
-}
-.van-body { fill: #ff2ec4; }
-.happy .van-body { animation: van-color 0.9s ease-in-out infinite; }
-@keyframes van-color { 0%, 100% { fill: #00e5ff; } 50% { fill: #9d4dff; } }
-.sparkle {
-  position: absolute;
-  font-size: 12px;
-  animation: sparkle-fly 1s ease-out infinite;
-  opacity: 0;
-}
-@keyframes sparkle-fly {
-  0% { opacity: 1; transform: translate(0, 0) scale(0.6) rotate(0deg); }
-  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(1.1) rotate(90deg); }
-}
-.honk {
-  position: absolute;
-  font-size: 11px;
-  color: #00e5ff;
-  font-weight: 700;
-  animation: honk-float 1s ease-out infinite;
-  opacity: 0;
-}
-@keyframes honk-float {
-  0% { opacity: 1; transform: translateY(0); }
-  100% { opacity: 0; transform: translateY(-16px); }
-}
-.pole-row {
+.gems-row {
   display: flex;
+  gap: 4px;
   align-items: center;
-  margin: 0 0 2px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
   position: relative;
   z-index: 2;
+  margin: 6px 0;
 }
-.pole-info {
-  flex: 1;
+.gems-row::-webkit-scrollbar { display: none; }
+.gem {
+  width: 14px;
+  height: 14px;
+  position: relative;
+  flex-shrink: 0;
 }
-.pole-pts {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 19px;
-  font-weight: 800;
-  line-height: 1;
-  color: #fff;
+.gem svg { width: 100%; height: 100%; }
+.gem.filled polygon { fill: url(#gemGradient); }
+.gem.filled {
+  animation: gem-twinkle 2.5s ease-in-out infinite;
+  filter: drop-shadow(0 0 4px rgba(0, 229, 255, 0.7));
+}
+.gem.filled:nth-child(odd) { animation-delay: 0.4s; }
+.gem.filled:nth-child(3n) { animation-delay: 0.9s; }
+@keyframes gem-twinkle { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+.gem.empty polygon {
+  fill: #26262c;
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 2;
 }
 .pole-total {
   font-family: 'Rajdhani', sans-serif;
@@ -595,37 +513,26 @@ a { color: inherit; }
 }
 .pole-caption {
   font-family: 'Rajdhani', sans-serif;
-  font-size: 11.5px;
+  font-size: 11px;
   color: #e0e2e8;
-  margin-top: 4px;
+  margin-top: 2px;
   font-weight: 600;
-}
-.pole-sub {
-  font-size: 10px;
-  color: var(--argent);
-  margin-top: 1px;
-}
-.verse-caption {
-  font-size: 10px;
-  font-style: italic;
-  color: var(--argent);
-  margin: 4px 0 0;
-  line-height: 1.35;
-  max-height: 28px;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
   position: relative;
   z-index: 2;
 }
-.verse-caption::-webkit-scrollbar {
-  display: none;
+.verse-outside {
+  margin-top: 14px;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid rgba(220, 222, 228, 0.2);
+  border-radius: 12px;
+  text-align: center;
 }
-@media (prefers-reduced-motion: reduce) {
-  .van.driving, .van.happy, .wheel, .happy .van-body, .puff, .sparkle, .honk {
-    animation: none;
-  }
-  .card-face.front::after { animation: none; }
+.verse-outside-text {
+  font-size: 13px;
+  font-style: italic;
+  color: #c7d0e0;
+  line-height: 1.5;
 }
 
 /* ---------------- REWARDS ---------------- */
