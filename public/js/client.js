@@ -725,13 +725,11 @@ function renderDashboardTabContent() {
     const nextThreshold = activeThresholds.filter(t => t > c.points).sort((a, b) => a - b)[0];
     const stampGoal = Math.max(nextThreshold || 0, ...activeThresholds, c.points, 10);
     const remaining = nextThreshold ? nextThreshold - c.points : 0;
-    const walkPercent = Math.min(96, Math.max(4, Math.round((c.points / stampGoal) * 100)));
-    const isHappy = c.points > 0 && activeThresholds.includes(c.points);
-    const milestonesHtml = activeThresholds.filter(t => t <= stampGoal).map(t => {
-      const pos = Math.min(100, Math.round((t / stampGoal) * 100));
-      const reached = c.points >= t;
-      return `<div class="milestone ${reached ? 'reached' : ''}" style="left:${pos}%;" title="${t} points"></div>`;
+    const gemsHtml = Array.from({ length: stampGoal }, (_, i) => {
+      const filled = i < c.points;
+      return `<div class="gem ${filled ? 'filled' : 'empty'}"><svg viewBox="0 0 20 20"><polygon points="10,1 18,7 15,19 5,19 2,7"/></svg></div>`;
     }).join('');
+    const progressText = remaining > 0 ? `Plus que ${remaining} coupe${remaining > 1 ? 's' : ''} avant ta récompense !` : (c.points > 0 ? '🎉 Récompense débloquée !' : '');
     const urgentMinutesLeft = state.urgent && state.urgent.active ? Math.max(0, Math.round((new Date(state.urgent.expiresAt) - new Date()) / 60000)) : 0;
     const reviewPrompt = getReviewPrompt();
     zone.innerHTML = `
@@ -758,52 +756,25 @@ function renderDashboardTabContent() {
           <button class="urgent-btn" id="urgent-book-btn">Réserver</button>
         </div>
       ` : ''}
+      ${progressText ? `<div class="progress-header"><span class="progress-text">${progressText}</span></div>` : ''}
       <div class="card-stage">
         <div class="loyalty-card ${state.cardFlipped ? 'flipped' : ''}" id="loyalty-card">
           <div class="card-face front">
+            <div class="holo-sheen"></div>
             <div class="card-corner-tag">LVL UP</div>
             <div class="card-top-row">
               <div class="brand-group">
                 <div class="card-header-icon" style="background-image:url('/icon-mono.png');"></div>
                 <span class="card-logo">HAIRSPRIT</span>
               </div>
-            </div>
-            <div>
               <div class="card-name">${c.prenom} ${c.nom}</div>
             </div>
-            <div class="path-wrap">
-              <div class="path-line"></div>
-              <div class="path-progress" style="width:${walkPercent}%;"></div>
-              ${milestonesHtml}
-              <div class="house">🏆</div>
-              ${!isHappy ? `<div class="puff puff1" style="left:${Math.max(0, walkPercent - 9)}%;"></div><div class="puff puff2" style="left:${Math.max(0, walkPercent - 12)}%;"></div>` : `
-                <div class="sparkle" style="left:${walkPercent - 6}%;top:14px;--dx:-14px;--dy:-10px;">✨</div>
-                <div class="sparkle" style="left:${walkPercent + 6}%;top:18px;--dx:12px;--dy:-14px;animation-delay:0.3s;">⭐</div>
-                <div class="honk" style="left:${walkPercent - 5}%;top:0;">Toot!</div>
-              `}
-              <div class="van ${isHappy ? 'happy' : 'driving'}" style="left:${walkPercent}%;">
-                <svg viewBox="0 0 36 26" fill="none">
-                  <path class="van-body" d="M2 10 L2 20 L34 20 L34 12 L26 12 L22 6 L8 6 L2 10 Z"/>
-                  <rect x="9" y="8" width="7" height="5" rx="1" fill="#cfe8ff"/>
-                  <rect x="18" y="8" width="6" height="5" rx="1" fill="#cfe8ff"/>
-                  <circle class="wheel" cx="10" cy="20" r="3.4" fill="#111"/>
-                  <circle class="wheel" cx="27" cy="20" r="3.4" fill="#111"/>
-                  <circle cx="10" cy="20" r="1.2" fill="#666"/>
-                  <circle cx="27" cy="20" r="1.2" fill="#666"/>
-                </svg>
-              </div>
-            </div>
-            <div class="pole-row">
-              <div class="pole-info">
-                <div class="pole-pts">${c.points} <span class="pole-total">/ ${stampGoal}</span></div>
-                ${remaining > 0 ? `<div class="pole-caption">✂️ Plus que ${remaining} coupe${remaining > 1 ? 's' : ''}</div><div class="pole-sub">avant ta récompense !</div>` : (c.points > 0 ? `<div class="pole-caption">🎉 Récompense débloquée !</div>` : '')}
-              </div>
-            </div>
-            ${c.points > 0 ? `<div class="verse-caption">${BIBLE_VERSES[Math.floor(Math.random() * BIBLE_VERSES.length)]}</div>` : ''}
+            <svg width="0" height="0"><defs><linearGradient id="gemGradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#00e5ff"/><stop offset="100%" stop-color="#9d4dff"/></linearGradient></defs></svg>
+            <div class="gems-row">${gemsHtml}</div>
             <div class="card-bottom-row">
               <div>
                 <div class="card-points-label">Points fidélité</div>
-                <div class="card-points-value">${c.points}</div>
+                <div class="card-points-value">${c.points} <span class="pole-total">/ ${stampGoal}</span></div>
               </div>
               <div class="card-hint">Toucher pour<br>le QR code →</div>
             </div>
@@ -815,6 +786,11 @@ function renderDashboardTabContent() {
         </div>
       </div>
       <div class="card-flip-note">${initials} · Carte n°${c.id.slice(0, 8).toUpperCase()}</div>
+      ${c.points > 0 ? `
+        <div class="verse-outside">
+          <div class="verse-outside-text">${BIBLE_VERSES[Math.floor(Math.random() * BIBLE_VERSES.length)]}</div>
+        </div>
+      ` : ''}
       <a href="https://g.page/r/CRa_yp8Pnc2EEBM/review" target="_blank" rel="noopener" class="action-link-btn" style="text-decoration:none;">
         ⭐ Laisser un avis Google
       </a>
