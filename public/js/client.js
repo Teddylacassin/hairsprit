@@ -1487,6 +1487,8 @@ function openBookingSheet(preselectedServiceId) {
   let allCommunes = [];
   let selectedCommuneId = null;
   let selectedRewardId = null;
+  let bookingStep = 1; // 1 = prestations, 2 = date & heure
+  let calendarViewMonth = null; // 'YYYY-MM' du mois affiché dans le calendrier
 
   function personPrice(s) {
     if (!s) return 0;
@@ -1548,6 +1550,42 @@ function openBookingSheet(preselectedServiceId) {
     return new Date(iso).toLocaleDateString('en-CA'); // YYYY-MM-DD en heure locale
   }
 
+  function buildCalendarGrid(availableDates) {
+    if (!calendarViewMonth) calendarViewMonth = (selectedDate || availableDates[0] || new Date().toISOString().slice(0, 10)).slice(0, 7);
+    const [year, month] = calendarViewMonth.split('-').map(Number);
+    const firstOfMonth = new Date(year, month - 1, 1);
+    const startOffset = (firstOfMonth.getDay() + 6) % 7; // lundi = 0
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const todayKey = new Date().toLocaleDateString('en-CA');
+    const minDate = availableDates[0];
+    const maxDate = availableDates[availableDates.length - 1];
+
+    let cells = '';
+    for (let i = 0; i < startOffset; i++) cells += `<div class="cal-day disabled"></div>`;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dKey = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const isAvailable = availableDates.includes(dKey);
+      const isSelected = dKey === selectedDate;
+      const isPast = dKey < todayKey;
+      cells += `<div class="cal-day ${isSelected ? 'selected' : (isAvailable ? 'available' : 'disabled')}" ${isAvailable && !isPast ? `data-date="${dKey}"` : ''}>${d}</div>`;
+    }
+
+    const canPrev = minDate && `${calendarViewMonth}-01` > minDate.slice(0, 8) + '01';
+    const canNext = maxDate && `${calendarViewMonth}-28` < maxDate;
+
+    return `
+      <div class="cal-header">
+        <button type="button" class="cal-nav-btn" id="cal-prev-month" ${canPrev ? '' : 'disabled'}>‹</button>
+        <span class="cal-month-label">${firstOfMonth.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</span>
+        <button type="button" class="cal-nav-btn" id="cal-next-month" ${canNext ? '' : 'disabled'}>›</button>
+      </div>
+      <div class="cal-grid">
+        <div class="cal-day-label">L</div><div class="cal-day-label">M</div><div class="cal-day-label">M</div><div class="cal-day-label">J</div><div class="cal-day-label">V</div><div class="cal-day-label">S</div><div class="cal-day-label">D</div>
+        ${cells}
+      </div>
+    `;
+  }
+
   async function loadAll() {
     const zone = backdrop.querySelector('#slots-zone');
     zone.innerHTML = `<div class="loading-spin"></div>`;
@@ -1581,108 +1619,135 @@ function openBookingSheet(preselectedServiceId) {
     }
     const slotsForDate = selectedDate ? allSlots.filter(iso => dateKey(iso) === selectedDate) : [];
 
+    const hasServiceSelected = allServices.length === 0 || personServiceIds.some(ids => ids.length > 0);
+    const groupedSlots = {
+      morning: slotsForDate.filter(iso => new Date(iso).getHours() < 12),
+      afternoon: slotsForDate.filter(iso => { const h = new Date(iso).getHours(); return h >= 12 && h < 18; }),
+      evening: slotsForDate.filter(iso => new Date(iso).getHours() >= 18),
+    };
+    function slotGroupHtml(label, icon, slots) {
+      if (slots.length === 0) return '';
+      return `
+        <div class="slot-group-title">${icon} ${label}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;padding:0;">
+          ${slots.map(iso => `
+            <button type="button" class="btn ${iso === selectedSlot ? 'btn-primary' : 'btn-outline'} slot-btn" data-slot="${iso}" style="width:auto;padding:10px 14px;font-size:13px;">
+              ${new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+            </button>
+          `).join('')}
+        </div>
+      `;
+    }
+
     zone.innerHTML = `
-      <div class="section-title" style="margin-top:0;">Combien de personnes ?</div>
-      <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">
-        <button type="button" class="btn btn-outline" id="people-minus" style="width:44px;">−</button>
-        <span style="font-family:var(--font-mono);font-size:20px;min-width:24px;text-align:center;">${peopleCount}</span>
-        <button type="button" class="btn btn-outline" id="people-plus" style="width:44px;">+</button>
+      <div class="booking-steps">
+        <div class="step-dot ${bookingStep > 1 ? 'done' : 'active'}">${bookingStep > 1 ? '✓' : '1'}</div>
+        <div class="step-line ${bookingStep > 1 ? 'done' : ''}"></div>
+        <div class="step-dot ${bookingStep === 2 ? 'active' : 'todo'}">2</div>
       </div>
-      ${peopleCount >= 3 ? `<div style="color:var(--succes);font-size:12.5px;margin-bottom:14px;">🎉 Tarif groupe appliqué</div>` : ''}
+      <div class="step-label">${bookingStep === 1 ? 'Étape 1 — Choisis tes prestations' : 'Étape 2 — Choisis ta date et ton heure'}</div>
 
-      ${allServices.length > 0 ? personServiceIds.map((ids, i) => `
-        <div class="field">
-          <label>Prestations — Personne ${i + 1} (touche pour sélectionner)</label>
-          <div style="display:flex;flex-wrap:wrap;gap:8px;">
-            ${allServices.map(s => `
-              <button type="button" class="service-chip ${ids.includes(s.id) ? 'active' : ''}" data-person="${i}" data-service="${s.id}" style="background:${ids.includes(s.id) ? 'rgba(0,229,255,0.12)' : 'var(--panel-2)'};border:1px solid ${ids.includes(s.id) ? 'var(--succes)' : 'var(--ligne)'};border-radius:20px;padding:10px 16px;font-size:13px;color:${ids.includes(s.id) ? 'var(--succes)' : 'var(--blanc)'};font-weight:${ids.includes(s.id) ? '600' : '400'};display:flex;align-items:center;gap:6px;cursor:pointer;">
-                ${ids.includes(s.id) ? '✓ ' : ''}${s.name} <span style="font-family:var(--font-mono);font-size:11px;opacity:0.75;">${personPrice(s).toFixed(2)}€${peopleCount >= 3 && s.group_price != null ? ' grp' : ''}</span>
-              </button>
-            `).join('')}
-          </div>
+      ${bookingStep === 1 ? `
+        <div class="section-title" style="margin-top:0;">Combien de personnes ?</div>
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">
+          <button type="button" class="btn btn-outline" id="people-minus" style="width:44px;">−</button>
+          <span style="font-family:var(--font-mono);font-size:20px;min-width:24px;text-align:center;">${peopleCount}</span>
+          <button type="button" class="btn btn-outline" id="people-plus" style="width:44px;">+</button>
         </div>
-      `).join('') : ''}
+        ${peopleCount >= 3 ? `<div style="color:var(--succes);font-size:12.5px;margin-bottom:14px;">🎉 Tarif groupe appliqué</div>` : ''}
 
-      ${allCommunes.length > 0 ? `
-        <div class="field">
-          <label>Ta commune</label>
-          <select id="commune-select" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:12px 14px;border-radius:10px;font-size:14px;">
-            ${allCommunes.map(c => `<option value="${c.id}" ${c.id === selectedCommuneId ? 'selected' : ''}>${c.name}${parseFloat(c.surcharge) > 0 ? ` (+${parseFloat(c.surcharge).toFixed(2)}€)` : ''}</option>`).join('')}
-          </select>
-        </div>
-      ` : ''}
-
-      ${allServices.length > 0 && personServiceIds.some(ids => ids.length > 0) && (state.rewards || []).some(r => r.discount_type && state.client.points >= r.points_required) ? `
-        <div class="section-title">🎁 Utiliser une récompense ?</div>
-        <div style="display:flex;flex-direction:column;gap:8px;">
-          ${state.rewards.filter(r => r.discount_type && state.client.points >= r.points_required).map(r => `
-            <label style="display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid ${selectedRewardId === r.id ? 'var(--succes)' : 'var(--ligne)'};border-radius:10px;padding:10px 12px;cursor:pointer;">
-              <input type="radio" name="reward-choice" class="reward-radio" value="${r.id}" ${selectedRewardId === r.id ? 'checked' : ''} />
-              <div style="flex:1;">
-                <div style="font-size:13px;font-weight:600;">${r.name}</div>
-                <div style="font-size:11px;color:var(--argent);">${r.points_required} points</div>
-              </div>
-            </label>
-          `).join('')}
-          <label style="display:flex;align-items:center;gap:10px;padding:4px 12px;cursor:pointer;">
-            <input type="radio" name="reward-choice" class="reward-radio" value="" ${!selectedRewardId ? 'checked' : ''} />
-            <span style="font-size:12.5px;color:var(--argent);">Ne pas utiliser de récompense</span>
-          </label>
-        </div>
-      ` : ''}
-
-      ${allServices.length > 0 && personServiceIds.some(ids => ids.length > 0) ? `
-        <div class="section-title">Récapitulatif</div>
-        <div class="scanner-box" style="max-width:100%;padding:14px;">
-          ${personServiceIds.map((ids, i) => ids.length === 0 ? '' : `
-            <div style="margin-bottom:10px;">
-              <div style="font-size:12.5px;color:var(--argent-clair);font-weight:600;margin-bottom:4px;">Personne ${i + 1}</div>
-              ${ids.map(sid => {
-                const s = allServices.find(sv => sv.id === sid);
-                if (!s) return '';
-                return `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span>${s.name}</span><span style="font-family:var(--font-mono);color:var(--argent-clair);">${personPrice(s).toFixed(2)}€</span></div>`;
-              }).join('')}
+        ${allServices.length > 0 ? personServiceIds.map((ids, i) => `
+          <div class="field">
+            <label>Prestations — Personne ${i + 1} (touche pour sélectionner)</label>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;">
+              ${allServices.map(s => `
+                <button type="button" class="service-chip ${ids.includes(s.id) ? 'active' : ''}" data-person="${i}" data-service="${s.id}" style="background:${ids.includes(s.id) ? 'rgba(0,229,255,0.12)' : 'var(--panel-2)'};border:1px solid ${ids.includes(s.id) ? 'var(--succes)' : 'var(--ligne)'};border-radius:20px;padding:10px 16px;font-size:13px;color:${ids.includes(s.id) ? 'var(--succes)' : 'var(--blanc)'};font-weight:${ids.includes(s.id) ? '600' : '400'};display:flex;align-items:center;gap:6px;cursor:pointer;">
+                  ${ids.includes(s.id) ? '✓ ' : ''}${s.name} <span style="font-family:var(--font-mono);font-size:11px;opacity:0.75;">${personPrice(s).toFixed(2)}€${peopleCount >= 3 && s.group_price != null ? ' grp' : ''}</span>
+                </button>
+              `).join('')}
             </div>
-          `).join('')}
-          ${communeSurcharge() > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#e8b84b;"><span>Supplément commune</span><span style="font-family:var(--font-mono);">+${communeSurcharge().toFixed(2)}€</span></div>` : ''}
-          ${selectedReward() ? `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:var(--succes);"><span>🎁 ${selectedReward().name}</span><span style="font-family:var(--font-mono);">-${rewardDiscount().toFixed(2)}€</span></div>` : ''}
-          <div style="display:flex;justify-content:space-between;border-top:1px solid var(--ligne);padding-top:10px;margin-top:6px;font-size:14px;font-weight:600;">
-            <span>Total (${totalDuration()} min)</span>
-            <span style="font-family:var(--font-mono);color:var(--succes);">${totalPrice().toFixed(2)}€</span>
           </div>
-        </div>
-      ` : ''}
+        `).join('') : ''}
 
-      <div class="section-title">Choisir un jour</div>
-      ${dateRejectedMsg ? `<div class="error-msg">${dateRejectedMsg}</div>` : ''}
-      ${availableDates.length === 0 ? `<div class="empty-state">Aucun créneau disponible pour le moment. Essayez avec moins de personnes.</div>` : `
-        <div class="field" style="max-width:220px;">
-          <input type="date" id="date-picker" value="${selectedDate}" min="${availableDates[0]}" max="${availableDates[availableDates.length - 1]}" />
-        </div>
-        <div class="section-title">Choisir une heure</div>
-        ${slotsForDate.length === 0 ? `<div class="empty-state">Aucun créneau ce jour-là. Choisissez un autre jour.</div>` : `
-          <div style="display:flex;flex-wrap:wrap;gap:8px;">
-            ${slotsForDate.map(iso => `
-              <button type="button" class="btn ${iso === selectedSlot ? 'btn-primary' : 'btn-outline'} slot-btn" data-slot="${iso}" style="width:auto;padding:10px 14px;font-size:13px;">
-                ${new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-              </button>
+        ${allCommunes.length > 0 ? `
+          <div class="field">
+            <label>Ta commune</label>
+            <select id="commune-select" style="width:100%;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:12px 14px;border-radius:10px;font-size:14px;">
+              ${allCommunes.map(c => `<option value="${c.id}" ${c.id === selectedCommuneId ? 'selected' : ''}>${c.name}${parseFloat(c.surcharge) > 0 ? ` (+${parseFloat(c.surcharge).toFixed(2)}€)` : ''}</option>`).join('')}
+            </select>
+          </div>
+        ` : ''}
+
+        ${allServices.length > 0 && hasServiceSelected && (state.rewards || []).some(r => r.discount_type && state.client.points >= r.points_required) ? `
+          <div class="section-title">🎁 Utiliser une récompense ?</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            ${state.rewards.filter(r => r.discount_type && state.client.points >= r.points_required).map(r => `
+              <label style="display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid ${selectedRewardId === r.id ? 'var(--succes)' : 'var(--ligne)'};border-radius:10px;padding:10px 12px;cursor:pointer;">
+                <input type="radio" name="reward-choice" class="reward-radio" value="${r.id}" ${selectedRewardId === r.id ? 'checked' : ''} />
+                <div style="flex:1;">
+                  <div style="font-size:13px;font-weight:600;">${r.name}</div>
+                  <div style="font-size:11px;color:var(--argent);">${r.points_required} points</div>
+                </div>
+              </label>
             `).join('')}
+            <label style="display:flex;align-items:center;gap:10px;padding:4px 12px;cursor:pointer;">
+              <input type="radio" name="reward-choice" class="reward-radio" value="" ${!selectedRewardId ? 'checked' : ''} />
+              <span style="font-size:12.5px;color:var(--argent);">Ne pas utiliser de récompense</span>
+            </label>
           </div>
+        ` : ''}
+
+        <button class="btn btn-primary" id="go-to-step2-btn" style="margin-top:16px;" ${hasServiceSelected ? '' : 'disabled'}>
+          ${hasServiceSelected ? 'Continuer →' : 'Choisis au moins une prestation'}
+        </button>
+      ` : `
+        <div class="section-title" style="margin-top:0;">Choisir un jour</div>
+        ${dateRejectedMsg ? `<div class="error-msg">${dateRejectedMsg}</div>` : ''}
+        ${availableDates.length === 0 ? `<div class="empty-state">Aucun créneau disponible pour le moment. Essayez avec moins de personnes.</div>` : `
+          ${buildCalendarGrid(availableDates)}
+          ${slotsForDate.length === 0 ? `<div class="empty-state" style="margin-top:14px;">Aucun créneau ce jour-là. Choisis un autre jour.</div>` : `
+            ${slotGroupHtml('Matin', '🌅', groupedSlots.morning)}
+            ${slotGroupHtml('Après-midi', '☀️', groupedSlots.afternoon)}
+            ${slotGroupHtml('Soir', '🌙', groupedSlots.evening)}
+          `}
         `}
+
+        ${hasServiceSelected ? `
+          <div class="section-title">Récapitulatif</div>
+          <div class="scanner-box" style="max-width:100%;padding:14px;">
+            ${personServiceIds.map((ids, i) => ids.length === 0 ? '' : `
+              <div style="margin-bottom:10px;">
+                <div style="font-size:12.5px;color:var(--argent-clair);font-weight:600;margin-bottom:4px;">Personne ${i + 1}</div>
+                ${ids.map(sid => {
+                  const s = allServices.find(sv => sv.id === sid);
+                  if (!s) return '';
+                  return `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span>${s.name}</span><span style="font-family:var(--font-mono);color:var(--argent-clair);">${personPrice(s).toFixed(2)}€</span></div>`;
+                }).join('')}
+              </div>
+            `).join('')}
+            ${communeSurcharge() > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#e8b84b;"><span>Supplément commune</span><span style="font-family:var(--font-mono);">+${communeSurcharge().toFixed(2)}€</span></div>` : ''}
+            ${selectedReward() ? `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:var(--succes);"><span>🎁 ${selectedReward().name}</span><span style="font-family:var(--font-mono);">-${rewardDiscount().toFixed(2)}€</span></div>` : ''}
+          </div>
+        ` : ''}
+
+        <div class="field" style="margin-top:16px;">
+          <label>Message (optionnel)</label>
+          <textarea id="message" name="message" rows="2" placeholder="Précision..."></textarea>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:6px;">
+          <button class="btn btn-outline" id="back-to-step1-btn" style="width:auto;flex-shrink:0;padding:14px 18px;">← Retour</button>
+          <button class="btn btn-primary" id="confirm-slot-btn" style="flex:1;" ${selectedSlot ? '' : 'disabled'}>
+            ${selectedSlot ? `Réserver — ${totalPrice().toFixed(2)}€` : 'Choisis une heure ci-dessus'}
+          </button>
+        </div>
       `}
-
-      <div class="field" style="margin-top:16px;">
-        <label>Message (optionnel)</label>
-        <textarea id="message" name="message" rows="2" placeholder="Précision..."></textarea>
-      </div>
-
-      <button class="btn btn-primary" id="confirm-slot-btn" ${selectedSlot ? '' : 'disabled'}>
-        ${selectedSlot ? `Réserver le ${new Date(selectedSlot).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })} à ${new Date(selectedSlot).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Choisissez une heure ci-dessus'}
-      </button>
     `;
 
-    zone.querySelector('#people-minus').onclick = () => { if (peopleCount > 1) { peopleCount--; selectedSlot = null; loadAll(); } };
-    zone.querySelector('#people-plus').onclick = () => { if (peopleCount < 6) { peopleCount++; selectedSlot = null; loadAll(); } };
+    const peopleMinus = zone.querySelector('#people-minus');
+    if (peopleMinus) peopleMinus.onclick = () => { if (peopleCount > 1) { peopleCount--; selectedSlot = null; loadAll(); } };
+    const peoplePlus = zone.querySelector('#people-plus');
+    if (peoplePlus) peoplePlus.onclick = () => { if (peopleCount < 6) { peopleCount++; selectedSlot = null; loadAll(); } };
 
     const communeSelect = zone.querySelector('#commune-select');
     if (communeSelect) {
@@ -1713,14 +1778,49 @@ function openBookingSheet(preselectedServiceId) {
       };
     });
 
-    const datePicker = zone.querySelector('#date-picker');
-    if (datePicker) {
-      datePicker.onchange = (e) => {
-        selectedDate = e.target.value;
-        selectedSlot = null;
+    const goToStep2Btn = zone.querySelector('#go-to-step2-btn');
+    if (goToStep2Btn) {
+      goToStep2Btn.onclick = () => {
+        if (!hasServiceSelected) return;
+        bookingStep = 2;
+        calendarViewMonth = null;
         loadAll();
       };
     }
+
+    const backToStep1Btn = zone.querySelector('#back-to-step1-btn');
+    if (backToStep1Btn) {
+      backToStep1Btn.onclick = () => {
+        bookingStep = 1;
+        loadAll();
+      };
+    }
+
+    const calPrevBtn = zone.querySelector('#cal-prev-month');
+    if (calPrevBtn) {
+      calPrevBtn.onclick = () => {
+        const [y, m] = calendarViewMonth.split('-').map(Number);
+        const prev = new Date(y, m - 2, 1);
+        calendarViewMonth = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
+        loadAll();
+      };
+    }
+    const calNextBtn = zone.querySelector('#cal-next-month');
+    if (calNextBtn) {
+      calNextBtn.onclick = () => {
+        const [y, m] = calendarViewMonth.split('-').map(Number);
+        const next = new Date(y, m, 1);
+        calendarViewMonth = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+        loadAll();
+      };
+    }
+    zone.querySelectorAll('.cal-day[data-date]').forEach(cell => {
+      cell.onclick = () => {
+        selectedDate = cell.dataset.date;
+        selectedSlot = null;
+        loadAll();
+      };
+    });
 
     zone.querySelectorAll('.slot-btn').forEach(btn => {
       btn.onclick = () => {
@@ -1730,9 +1830,10 @@ function openBookingSheet(preselectedServiceId) {
     });
 
     const confirmBtn = zone.querySelector('#confirm-slot-btn');
-    if (selectedSlot) {
+    if (confirmBtn && selectedSlot) {
       confirmBtn.onclick = async () => {
-        const message = zone.querySelector('#message').value;
+        const messageEl = zone.querySelector('#message');
+        const message = messageEl ? messageEl.value : '';
         confirmBtn.disabled = true;
         confirmBtn.textContent = 'Envoi en cours...';
         try {
@@ -1758,7 +1859,7 @@ function openBookingSheet(preselectedServiceId) {
         } catch (err) {
           backdrop.querySelector('#booking-error').innerHTML = `<div class="error-msg">${err.message}</div>`;
           confirmBtn.disabled = false;
-          confirmBtn.textContent = `Réserver le ${new Date(selectedSlot).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })} à ${new Date(selectedSlot).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+          confirmBtn.textContent = `Réserver — ${totalPrice().toFixed(2)}€`;
         }
       };
     }
