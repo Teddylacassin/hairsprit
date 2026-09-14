@@ -1320,7 +1320,73 @@ async function renderBookingsTab(main) {
     return;
   }
   const openDaysArr = schedule.open_days.split(',').map(d => parseInt(d, 10));
-  const visibleBookings = state.bookings.filter(b => b.status !== 'annule');
+  if (!state.bookingsSearch) state.bookingsSearch = '';
+  if (!state.bookingsFilter) state.bookingsFilter = 'all';
+
+  const nonCancelled = state.bookings.filter(b => b.status !== 'annule');
+  const pendingCount = nonCancelled.filter(b => b.status === 'en_attente').length;
+
+  let filteredBookings = state.bookings.filter(b => {
+    if (state.bookingsFilter === 'attente') return b.status === 'en_attente';
+    if (state.bookingsFilter === 'confirme') return b.status === 'confirme';
+    if (state.bookingsFilter === 'annule') return b.status === 'annule';
+    return b.status !== 'annule'; // "all" = tout sauf annulés, comme avant
+  });
+  if (state.bookingsSearch.trim()) {
+    const q = state.bookingsSearch.trim().toLowerCase();
+    filteredBookings = filteredBookings.filter(b => `${b.prenom} ${b.nom}`.toLowerCase().includes(q) || (b.telephone || '').includes(q));
+  }
+  filteredBookings.sort((a, b) => {
+    if (!a.slot_datetime) return 1;
+    if (!b.slot_datetime) return -1;
+    return new Date(a.slot_datetime) - new Date(b.slot_datetime);
+  });
+
+  function dayGroupLabel(dateStr) {
+    const d = new Date(dateStr);
+    const todayKey = new Date().toLocaleDateString('en-CA');
+    const tomorrowKey = new Date(Date.now() + 86400000).toLocaleDateString('en-CA');
+    const dKey = d.toLocaleDateString('en-CA');
+    if (dKey === todayKey) return "Aujourd'hui";
+    if (dKey === tomorrowKey) return 'Demain';
+    return d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'UTC' });
+  }
+
+  const groups = [];
+  filteredBookings.forEach(b => {
+    const label = b.slot_datetime ? dayGroupLabel(b.slot_datetime) : 'Sans date';
+    let group = groups.find(g => g.label === label);
+    if (!group) { group = { label, bookings: [] }; groups.push(group); }
+    group.bookings.push(b);
+  });
+  const visibleBookings = nonCancelled; // gardé pour compat avec le code existant plus bas (ICS, etc.)
+
+  const bookingCardHtml = (b) => `
+        <div class="reward-admin-row" data-id="${b.id}" style="flex-direction:column;align-items:stretch;gap:10px;${b.wedding_stage ? 'border-color:#ff2ec4;' : ''}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+            <div>
+              <div style="font-weight:600;font-size:14.5px;">${b.prenom} ${b.nom}${b.wedding_stage ? ` <span style="color:#ff2ec4;">💍 ${b.wedding_stage === 'essai' ? 'Essai' : 'Jour J'}</span>` : ''}</div>
+              <div style="color:var(--argent);font-size:12.5px;">${b.telephone}</div>
+              ${b.address ? `<div style="color:var(--argent);font-size:12px;">📍 ${b.address} <button class="copy-address-btn" data-address="${b.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button> <a href="https://www.waze.com/ul?q=${encodeURIComponent(b.address)}&navigate=yes" target="_blank" rel="noopener" title="Ouvrir dans Waze" style="text-decoration:none;padding:2px 4px;">🚗</a></div>` : ''}
+            </div>
+            <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
+          </div>
+          ${b.slot_datetime ? `<div style="font-family:var(--font-mono);font-size:14px;display:flex;align-items:center;gap:8px;">${formatDate(b.slot_datetime)}${b.status === 'confirme' ? ` <a href="${buildICSLink(b, schedule.slot_duration_minutes)}" title="Ajouter au calendrier" style="text-decoration:none;">📅</a>` : ''}</div>` : ''}
+          ${b.deposit_amount != null ? `<div style="font-size:12.5px;display:flex;align-items:center;gap:8px;">💳 Acompte ${parseFloat(b.deposit_amount).toFixed(2)}€ — <span style="color:${b.deposit_paid ? 'var(--succes)' : 'var(--danger)'};">${b.deposit_paid ? 'reçu ✓' : 'en attente'}</span> <button class="btn btn-outline toggle-deposit-btn" data-current="${b.deposit_paid}" style="width:auto;padding:4px 10px;font-size:11px;">${b.deposit_paid ? 'Marquer non reçu' : 'Marquer reçu'}</button></div>` : ''}
+          ${b.people_count > 1 ? `<div style="color:var(--argent-clair);font-size:12.5px;">👥 ${b.people_count} personnes${b.total_duration_minutes ? ` · ${b.total_duration_minutes} min` : ''}</div>` : ''}
+          ${b.booking_details ? `<div style="font-size:13.5px;color:var(--succes);">${b.booking_details}</div>` : (b.service_name ? `<div style="font-size:13.5px;color:var(--succes);">${b.service_name} · ${parseFloat(b.service_price).toFixed(2)}€</div>` : '')}
+          <div style="font-size:13.5px;">${b.message || '—'}</div>
+          <div style="color:var(--argent);font-size:12px;">Demande envoyée le ${formatDate(b.created_at)}</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${b.status === 'en_attente' ? `
+              <button class="btn btn-outline confirm-btn" style="width:auto;flex:1;padding:10px 14px;font-size:13px;">✓ Confirmer</button>
+              <button class="btn btn-danger cancel-btn" style="width:auto;flex:1;padding:10px 14px;font-size:13px;">✕ Annuler</button>
+            ` : `
+              <button class="btn btn-outline reopen-btn" style="width:auto;padding:10px 14px;font-size:13px;">Remettre en attente</button>
+            `}
+          </div>
+        </div>
+      `;
 
   main.innerHTML = `
     <button class="btn btn-primary" id="open-quick-booking-btn" style="margin-bottom:18px;">⚡ Réservation rapide (client par téléphone)</button>
@@ -1410,35 +1476,29 @@ async function renderBookingsTab(main) {
     </div>
 
     <div class="section-title">Demandes de réservation</div>
-    ${visibleBookings.length === 0 ? `<div class="empty-state">Aucune demande pour le moment.</div>` : ''}
-    <div style="display:flex;flex-direction:column;gap:10px;">
-      ${visibleBookings.map(b => `
-        <div class="reward-admin-row" data-id="${b.id}" style="flex-direction:column;align-items:stretch;gap:10px;${b.wedding_stage ? 'border-color:#ff2ec4;' : ''}">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
-            <div>
-              <div style="font-weight:600;font-size:14.5px;">${b.prenom} ${b.nom}${b.wedding_stage ? ` <span style="color:#ff2ec4;">💍 ${b.wedding_stage === 'essai' ? 'Essai' : 'Jour J'}</span>` : ''}</div>
-              <div style="color:var(--argent);font-size:12.5px;">${b.telephone}</div>
-              ${b.address ? `<div style="color:var(--argent);font-size:12px;">📍 ${b.address} <button class="copy-address-btn" data-address="${b.address.replace(/"/g, '&quot;')}" title="Copier l'adresse" style="background:none;border:none;color:var(--blanc);cursor:pointer;padding:2px 4px;">📋</button> <a href="https://www.waze.com/ul?q=${encodeURIComponent(b.address)}&navigate=yes" target="_blank" rel="noopener" title="Ouvrir dans Waze" style="text-decoration:none;padding:2px 4px;">🚗</a></div>` : ''}
-            </div>
-            <span class="pill status-${b.status}">${b.status.replace('_', ' ')}</span>
-          </div>
-          ${b.slot_datetime ? `<div style="font-family:var(--font-mono);font-size:14px;display:flex;align-items:center;gap:8px;">${formatDate(b.slot_datetime)}${b.status === 'confirme' ? ` <a href="${buildICSLink(b, schedule.slot_duration_minutes)}" title="Ajouter au calendrier" style="text-decoration:none;">📅</a>` : ''}</div>` : ''}
-          ${b.deposit_amount != null ? `<div style="font-size:12.5px;display:flex;align-items:center;gap:8px;">💳 Acompte ${parseFloat(b.deposit_amount).toFixed(2)}€ — <span style="color:${b.deposit_paid ? 'var(--succes)' : 'var(--danger)'};">${b.deposit_paid ? 'reçu ✓' : 'en attente'}</span> <button class="btn btn-outline toggle-deposit-btn" data-current="${b.deposit_paid}" style="width:auto;padding:4px 10px;font-size:11px;">${b.deposit_paid ? 'Marquer non reçu' : 'Marquer reçu'}</button></div>` : ''}
-          ${b.people_count > 1 ? `<div style="color:var(--argent-clair);font-size:12.5px;">👥 ${b.people_count} personnes${b.total_duration_minutes ? ` · ${b.total_duration_minutes} min` : ''}</div>` : ''}
-          ${b.booking_details ? `<div style="font-size:13.5px;color:var(--succes);">${b.booking_details}</div>` : (b.service_name ? `<div style="font-size:13.5px;color:var(--succes);">${b.service_name} · ${parseFloat(b.service_price).toFixed(2)}€</div>` : '')}
-          <div style="font-size:13.5px;">${b.message || '—'}</div>
-          <div style="color:var(--argent);font-size:12px;">Demande envoyée le ${formatDate(b.created_at)}</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            ${b.status === 'en_attente' ? `
-              <button class="btn btn-outline confirm-btn" style="width:auto;flex:1;padding:10px 14px;font-size:13px;">✓ Confirmer</button>
-              <button class="btn btn-danger cancel-btn" style="width:auto;flex:1;padding:10px 14px;font-size:13px;">✕ Annuler</button>
-            ` : `
-              <button class="btn btn-outline reopen-btn" style="width:auto;padding:10px 14px;font-size:13px;">Remettre en attente</button>
-            `}
-          </div>
-        </div>
+    ${pendingCount > 0 ? `
+      <div style="background:linear-gradient(135deg,#e8c463,#c9922e);color:#000;font-weight:700;font-size:13px;padding:10px 14px;border-radius:10px;margin-bottom:14px;">
+        ⏳ ${pendingCount} demande${pendingCount > 1 ? 's' : ''} en attente de confirmation
+      </div>
+    ` : ''}
+    <div style="margin-bottom:10px;">
+      <input type="text" id="bookings-search-input" value="${(state.bookingsSearch || '').replace(/"/g, '&quot;')}" placeholder="🔍 Rechercher un client..." style="width:100%;box-sizing:border-box;background:var(--panel-2);border:1px solid var(--ligne);color:var(--blanc);padding:10px 12px;border-radius:8px;font-size:13px;" />
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:18px;overflow-x:auto;">
+      ${[['all', 'Tous'], ['attente', 'En attente'], ['confirme', 'Confirmés'], ['annule', 'Annulés']].map(([val, label]) => `
+        <button type="button" class="bookings-filter-chip" data-filter="${val}" style="background:${state.bookingsFilter === val ? 'linear-gradient(135deg,var(--succes),#9d4dff)' : 'var(--panel-2)'};border:1px solid ${state.bookingsFilter === val ? 'transparent' : 'var(--ligne)'};color:${state.bookingsFilter === val ? '#000' : 'var(--argent-clair)'};font-weight:${state.bookingsFilter === val ? '700' : '400'};border-radius:20px;padding:7px 14px;font-size:11.5px;white-space:nowrap;cursor:pointer;">${label}</button>
       `).join('')}
     </div>
+    ${filteredBookings.length === 0 ? `<div class="empty-state">Aucune demande ne correspond.</div>` : ''}
+    ${groups.map(group => `
+      <div class="section-title" style="text-transform:capitalize;display:flex;align-items:center;gap:8px;">
+        ${group.label}
+        <span style="background:var(--panel-2);border-radius:20px;padding:2px 8px;font-size:9px;color:var(--argent-clair);text-transform:none;">${group.bookings.length}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:8px;">
+        ${group.bookings.map(bookingCardHtml).join('')}
+      </div>
+    `).join('')}
   `;
 
   main.querySelector('#save-schedule-btn').onclick = async () => {
@@ -1602,6 +1662,25 @@ async function renderBookingsTab(main) {
   });
 
   main.querySelector('#open-quick-booking-btn').onclick = () => openQuickBookingPanel(main);
+
+  const searchInput = main.querySelector('#bookings-search-input');
+  if (searchInput) {
+    searchInput.oninput = (e) => {
+      const val = e.target.value;
+      if (state.bookingsSearchTimeout) clearTimeout(state.bookingsSearchTimeout);
+      state.bookingsSearchTimeout = setTimeout(() => {
+        state.bookingsSearch = val;
+        renderBookingsTab(main);
+      }, 450);
+    };
+  }
+
+  main.querySelectorAll('.bookings-filter-chip').forEach(chip => {
+    chip.onclick = () => {
+      state.bookingsFilter = chip.dataset.filter;
+      renderBookingsTab(main);
+    };
+  });
 }
 
 function openQuickBookingPanel(main) {
