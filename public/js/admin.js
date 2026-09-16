@@ -39,6 +39,72 @@ async function api(path, options = {}) {
   return data;
 }
 
+/* ---------------- NOTIFICATIONS PUSH ---------------- */
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
+
+async function updatePushButtonState(btn) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    btn.textContent = '🔔 Notifications non supportées sur ce navigateur';
+    btn.disabled = true;
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        btn.textContent = '🔔 Notifications activées ✓';
+        btn.disabled = true;
+        return;
+      }
+    } catch (e) { /* on retente une activation normale */ }
+  }
+  btn.textContent = '🔔 Activer les notifications';
+}
+
+async function enablePushNotifications(btn, msgZone) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    msgZone.innerHTML = `<div class="error-msg">Ton navigateur ne supporte pas les notifications.</div>`;
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Activation...';
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      msgZone.innerHTML = `<div class="error-msg">Autorisation refusée. Active les notifications dans les réglages de ton téléphone si tu changes d'avis.</div>`;
+      btn.disabled = false;
+      btn.textContent = '🔔 Activer les notifications';
+      return;
+    }
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+    const { publicKey } = await api('/push-public-key');
+    if (!publicKey) {
+      msgZone.innerHTML = `<div class="error-msg">Configuration serveur manquante pour les notifications.</div>`;
+      btn.disabled = false;
+      btn.textContent = '🔔 Activer les notifications';
+      return;
+    }
+    const subscription = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+    await api('/push-subscribe', { method: 'POST', body: JSON.stringify({ subscription }) });
+    btn.textContent = '🔔 Notifications activées ✓';
+    msgZone.innerHTML = `<div class="success-msg">✓ Tu recevras une notification à chaque nouvelle réservation.</div>`;
+  } catch (e) {
+    msgZone.innerHTML = `<div class="error-msg">${e.message}</div>`;
+    btn.disabled = false;
+    btn.textContent = '🔔 Activer les notifications';
+  }
+}
+
 function formatDate(iso) {
   let s = iso;
   if (typeof s === 'string' && s.includes(' ') && !s.includes('T')) {
@@ -1389,7 +1455,9 @@ async function renderBookingsTab(main) {
       `;
 
   main.innerHTML = `
-    <button class="btn btn-primary" id="open-quick-booking-btn" style="margin-bottom:18px;">⚡ Réservation rapide (client par téléphone)</button>
+    <button class="btn btn-primary" id="open-quick-booking-btn" style="margin-bottom:10px;">⚡ Réservation rapide (client par téléphone)</button>
+    <button class="btn btn-outline" id="enable-push-btn" style="margin-bottom:18px;">🔔 Activer les notifications</button>
+    <div id="push-msg"></div>
     <div id="quick-booking-zone"></div>
 
     <div class="section-title" style="margin-top:0;">Horaires d'ouverture</div>
@@ -1662,6 +1730,11 @@ async function renderBookingsTab(main) {
   });
 
   main.querySelector('#open-quick-booking-btn').onclick = () => openQuickBookingPanel(main);
+  const pushBtn = main.querySelector('#enable-push-btn');
+  if (pushBtn) {
+    updatePushButtonState(pushBtn);
+    pushBtn.onclick = () => enablePushNotifications(pushBtn, main.querySelector('#push-msg'));
+  }
 
   const searchInput = main.querySelector('#bookings-search-input');
   if (searchInput) {
