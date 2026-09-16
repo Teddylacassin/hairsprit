@@ -1190,4 +1190,20 @@ router.post('/backup/restore', requireAdminAuth, async (req, res) => {
   }
 });
 
+// GET /api/admin/push-public-key -> la clé publique nécessaire pour s'abonner aux notifications
+router.get('/push-public-key', requireAdminAuth, (req, res) => {
+  res.json({ publicKey: process.env.VAPID_PUBLIC_KEY || null });
+});
+
+// POST /api/admin/push-subscribe -> enregistre l'abonnement aux notifications de ce navigateur/téléphone
+router.post('/push-subscribe', requireAdminAuth, async (req, res) => {
+  try {
+    const { saveSubscription } = require('../webpush');
+    await saveSubscription(req.body.subscription);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
