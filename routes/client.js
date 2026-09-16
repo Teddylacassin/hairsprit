@@ -457,6 +457,16 @@ router.post('/booking', requireClientAuth, async (req, res) => {
     bookingDetails: finalBookingDetails,
   }).catch(() => {});
 
+  const { sendPushToAdmins } = require('../webpush');
+  const dateLabel = slot_datetime
+    ? new Date(slot_datetime).toLocaleString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Brussels' })
+    : '';
+  sendPushToAdmins({
+    title: '📅 Nouvelle réservation',
+    body: `${client.prenom} ${client.nom}${dateLabel ? ` — ${dateLabel}` : ''}`,
+    url: '/admin',
+  }).catch(() => {});
+
   res.json({ ok: true, bookingId: id });
 });
 
@@ -538,6 +548,13 @@ router.post('/urgent-booking', requireClientAuth, async (req, res) => {
     serviceName: names,
     peopleCount: 1,
     bookingDetails: details,
+  }).catch(() => {});
+
+  const { sendPushToAdmins } = require('../webpush');
+  sendPushToAdmins({
+    title: '⚡ Réservation URGENTE',
+    body: `${client.prenom} ${client.nom} — dès maintenant !`,
+    url: '/admin',
   }).catch(() => {});
 
   res.json({ ok: true, bookingId: id });
