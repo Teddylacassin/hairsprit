@@ -256,6 +256,12 @@ async function initDb() {
       last_sent_date DATE
     );
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS monthly_report_state (
+      id TEXT PRIMARY KEY,
+      last_sent_month TEXT
+    );
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS live_trip (
