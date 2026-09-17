@@ -13,6 +13,7 @@ const { startReminderScheduler } = require('./reminders');
 const { startBankSyncScheduler } = require('./bankSync');
 const { startAppointmentReminderScheduler } = require('./appointmentReminders');
 const { startBackupScheduler } = require('./backup');
+const { startMonthlyReportScheduler } = require('./monthlyReport');
 
 const clientRoutes = require('./routes/client');
 const adminRoutes = require('./routes/admin');
@@ -44,6 +45,7 @@ initDb()
     startBankSyncScheduler();
     startAppointmentReminderScheduler();
     startBackupScheduler();
+    startMonthlyReportScheduler();
   })
   .catch((err) => {
     console.error('Erreur lors de l\'initialisation de la base de données :', err);
