@@ -39,6 +39,59 @@ async function api(path, options = {}) {
   return data;
 }
 
+/* ---------------- EXPORT COMPTABLE (relevé imprimable) ---------------- */
+function openAccountingExportWindow({ rows, totals }) {
+  const monthName = (key) => new Date(`${key}-01T00:00:00Z`).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const fmt = (n) => `${n.toFixed(2)}€`;
+  const win = window.open('', '_blank');
+  win.document.write(`
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+      <meta charset="UTF-8">
+      <title>Relevé Hairsprit — ${rows.length} derniers mois</title>
+      <style>
+        body { font-family: Arial, sans-serif; color: #111; max-width: 680px; margin: 40px auto; padding: 0 20px; }
+        h1 { font-size: 20px; margin-bottom: 2px; }
+        .sub { color: #666; font-size: 13px; margin-bottom: 24px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid #ddd; font-size: 13px; }
+        th:first-child, td:first-child { text-align: left; text-transform: capitalize; }
+        th { color: #666; font-weight: 600; font-size: 11px; text-transform: uppercase; }
+        tfoot td { font-weight: 700; border-top: 2px solid #111; border-bottom: none; }
+        .net-pos { color: #0a8a3e; }
+        .net-neg { color: #cc2222; }
+        .disclaimer { margin-top: 28px; font-size: 11px; color: #888; border-top: 1px solid #eee; padding-top: 12px; }
+        @media print { .no-print { display: none; } }
+      </style>
+    </head>
+    <body>
+      <button class="no-print" onclick="window.print()" style="float:right;padding:8px 14px;">🖨️ Imprimer / Enregistrer en PDF</button>
+      <h1>Relevé de revenus — Hairsprit</h1>
+      <div class="sub">Teddy Lacassin · Indépendant · ${rows.length} derniers mois (jusqu'à ${monthName(rows[rows.length - 1].month)})</div>
+      <table>
+        <thead><tr><th>Mois</th><th>Revenus</th><th>Dépenses</th><th>Résultat net</th></tr></thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr>
+              <td>${monthName(r.month)}</td>
+              <td>${fmt(r.revenue)}</td>
+              <td>${fmt(r.expenses)}</td>
+              <td class="${r.net >= 0 ? 'net-pos' : 'net-neg'}">${fmt(r.net)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+        <tfoot>
+          <tr><td>Total</td><td>${fmt(totals.revenue)}</td><td>${fmt(totals.expenses)}</td><td class="${totals.net >= 0 ? 'net-pos' : 'net-neg'}">${fmt(totals.net)}</td></tr>
+        </tfoot>
+      </table>
+      <div class="disclaimer">Document généré automatiquement à partir des données de l'application Hairsprit, à titre indicatif. Il ne remplace pas une attestation officielle établie par un comptable ou un document fiscal (avertissement-extrait de rôle, comptes annuels...).</div>
+    </body>
+    </html>
+  `);
+  win.document.close();
+}
+
 /* ---------------- NOTIFICATIONS PUSH ---------------- */
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -1973,6 +2026,12 @@ async function renderAccountingTab(main) {
       `).join('')}
     </div>
 
+    <div class="section-title">Relevé pour ton comptable</div>
+    <div class="scanner-box" style="max-width:100%;">
+      <div class="sub" style="color:var(--argent);font-size:11.5px;margin-bottom:12px;">Un récapitulatif propre, mois par mois, à transmettre à ton comptable — par exemple pour qu'il te prépare une attestation de revenus (crédit auto, prêt...). ⚠️ Ce document n'a pas de valeur officielle par lui-même.</div>
+      <button class="btn btn-outline" id="export-accounting-btn">🖨️ Générer le relevé (12 derniers mois)</button>
+    </div>
+
     <div class="section-title">Sauvegarde</div>
     <div class="scanner-box" style="max-width:100%;">
       <div class="sub" style="color:var(--argent);font-size:11.5px;margin-bottom:12px;">Une sauvegarde complète de toutes tes données est envoyée automatiquement par email chaque jour. Tu peux aussi en déclencher une maintenant pour vérifier que ça fonctionne.</div>
@@ -1992,6 +2051,20 @@ async function renderAccountingTab(main) {
 
   main.querySelector('#acct-prev').onclick = () => { state.accountingMonth = shiftMonth(state.accountingMonth, -1); renderAccountingTab(main); };
   main.querySelector('#acct-next').onclick = () => { state.accountingMonth = shiftMonth(state.accountingMonth, 1); renderAccountingTab(main); };
+
+  main.querySelector('#export-accounting-btn').onclick = async () => {
+    const btn = main.querySelector('#export-accounting-btn');
+    btn.disabled = true;
+    btn.textContent = 'Préparation...';
+    try {
+      const result = await api('/accounting/export?months=12');
+      openAccountingExportWindow(result);
+    } catch (err) {
+      alert(err.message);
+    }
+    btn.disabled = false;
+    btn.textContent = '🖨️ Générer le relevé (12 derniers mois)';
+  };
 
   main.querySelector('#backup-now-btn').onclick = async () => {
     const btn = main.querySelector('#backup-now-btn');
@@ -2241,17 +2314,50 @@ async function renderStatsTab(main) {
   try {
     const res = await api('/stats');
     state.stats = res;
+    state.monthlyReport = await api('/monthly-report');
   } catch (e) {
     main.innerHTML = `<div class="error-msg">${e.message}</div>`;
     return;
   }
   const s = state.stats;
+  const mr = state.monthlyReport;
+  const maxTrendRevenue = Math.max(1, ...mr.trend.map(t => t.revenue));
   const maxVisits = Math.max(1, ...s.last30.map(d => d.visites));
   const monthLabel = new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
   const growthText = s.revenueGrowthPct == null ? '' : `${s.revenueGrowthPct >= 0 ? '+' : ''}${s.revenueGrowthPct.toFixed(0)}% vs mois dernier`;
   const growthColor = s.revenueGrowthPct == null ? 'var(--argent)' : (s.revenueGrowthPct >= 0 ? 'var(--succes)' : 'var(--danger)');
   main.innerHTML = `
-    <div class="section-title" style="margin-top:0;">Chiffre d'affaires — ${monthLabel}</div>
+    <div class="section-title" style="margin-top:0;">📊 Rapport mensuel</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      ${[
+        ['CA du mois', `${mr.current.revenue.toFixed(2)}€`, mr.current.revenue - mr.previous.revenue, true],
+        ['Visites', mr.current.visits, mr.current.visits - mr.previous.visits, false],
+        ['Nouveaux clients', mr.current.newClients, mr.current.newClients - mr.previous.newClients, false],
+        ['Panier moyen', `${mr.current.avgBasket.toFixed(2)}€`, mr.current.avgBasket - mr.previous.avgBasket, true],
+      ].map(([label, value, diff, isEuro]) => `
+        <div style="background:var(--panel);border:1px solid var(--ligne);border-radius:12px;padding:14px;">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--argent);">${label}</div>
+          <div style="font-family:var(--font-mono);font-size:19px;font-weight:700;margin-top:6px;">${value}</div>
+          <div style="font-size:11px;margin-top:4px;color:${diff >= 0 ? 'var(--succes)' : 'var(--danger)'};">${diff >= 0 ? '▲' : '▼'} ${diff >= 0 ? '+' : ''}${isEuro ? diff.toFixed(2) + '€' : Math.round(diff)} vs mois dernier</div>
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="section-title">Évolution du CA (6 derniers mois)</div>
+    <div class="scanner-box" style="max-width:100%;">
+      <div style="display:flex;align-items:flex-end;gap:8px;height:110px;padding:0 4px;">
+        ${mr.trend.map((t, i) => `
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;">
+            <div style="width:100%;border-radius:4px 4px 0 0;height:${Math.max(4, (t.revenue / maxTrendRevenue) * 90)}px;background:${i === mr.trend.length - 1 ? 'linear-gradient(180deg,#ff2ec4,#9d4dff)' : 'linear-gradient(180deg,#00e5ff,#9d4dff)'};" title="${t.revenue.toFixed(2)}€"></div>
+            <div style="font-size:9px;color:var(--argent);">${new Date(t.month + '-01').toLocaleDateString('fr-FR', { month: 'short' })}</div>
+          </div>
+        `).join('')}
+      </div>
+      <button class="btn btn-outline" id="send-monthly-report-btn" style="margin-top:14px;">📧 Tester l'envoi de l'email de bilan</button>
+      <div id="monthly-report-msg"></div>
+    </div>
+
+    <div class="section-title">Chiffre d'affaires — ${monthLabel}</div>
     <div class="scanner-box" style="max-width:100%;">
       <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
         <div style="font-family:var(--font-mono);font-size:38px;font-weight:600;color:var(--succes);">${s.monthRevenue.toFixed(2)}€</div>
@@ -2510,6 +2616,22 @@ async function renderStatsTab(main) {
       }
     };
   });
+
+  const sendReportBtn = main.querySelector('#send-monthly-report-btn');
+  if (sendReportBtn) {
+    sendReportBtn.onclick = async () => {
+      sendReportBtn.disabled = true;
+      sendReportBtn.textContent = 'Envoi en cours...';
+      try {
+        await api('/monthly-report/send-now', { method: 'POST' });
+        main.querySelector('#monthly-report-msg').innerHTML = `<div class="success-msg">✓ Email envoyé ! Vérifie ta boîte mail.</div>`;
+      } catch (err) {
+        main.querySelector('#monthly-report-msg').innerHTML = `<div class="error-msg">${err.message}</div>`;
+      }
+      sendReportBtn.disabled = false;
+      sendReportBtn.textContent = "📧 Tester l'envoi de l'email de bilan";
+    };
+  }
 }
 
 // Copie l'adresse dans le presse-papier, où qu'apparaisse le bouton dans l'app
