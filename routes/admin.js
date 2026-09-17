@@ -1206,4 +1206,77 @@ router.post('/push-subscribe', requireAdminAuth, async (req, res) => {
   }
 });
 
+// GET /api/admin/monthly-report?month=YYYY-MM -> stats du mois + tendance sur 6 mois
+router.get('/monthly-report', requireAdminAuth, async (req, res) => {
+  try {
+    const { computeMonthStats, computeSixMonthTrend, shiftMonth } = require('../monthlyReport');
+    const now = new Date();
+    const month = req.query.month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const current = await computeMonthStats(month);
+    const previous = await computeMonthStats(shiftMonth(month, -1));
+    const trend = await computeSixMonthTrend(month);
+    res.json({ current, previous, trend });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/admin/monthly-report/send-now -> test manuel de l'envoi du bilan
+router.post('/monthly-report/send-now', requireAdminAuth, async (req, res) => {
+  try {
+    const { sendMonthlyReportEmail } = require('../monthlyReport');
+    await sendMonthlyReportEmail();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/admin/accounting/export?months=12 -> récap mois par mois pour transmettre au comptable
+router.get('/accounting/export', requireAdminAuth, async (req, res) => {
+  const months = Math.min(24, Math.max(1, parseInt(req.query.months, 10) || 12));
+
+  const revenueRows = await db.all(`
+    WITH combined AS (
+      SELECT b.slot_datetime AS d, (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
+      FROM bookings b JOIN services s ON s.id = b.service_id
+      WHERE b.status = 'confirme' AND b.slot_datetime <= now()
+      UNION ALL
+      SELECT entry_date AS d, amount FROM manual_revenue
+    )
+    SELECT to_char(date_trunc('month', d), 'YYYY-MM') as month, COALESCE(SUM(amount),0) as total
+    FROM combined
+    WHERE d >= date_trunc('month', now()) - (? || ' months')::interval
+    GROUP BY 1 ORDER BY 1
+  `, [months - 1]);
+
+  const expenseRows = await db.all(`
+    SELECT to_char(date_trunc('month', expense_date), 'YYYY-MM') as month, COALESCE(SUM(amount),0) as total
+    FROM expenses
+    WHERE expense_date >= date_trunc('month', now()) - (? || ' months')::interval
+    GROUP BY 1 ORDER BY 1
+  `, [months - 1]);
+
+  const revenueMap = Object.fromEntries(revenueRows.map(r => [r.month, parseFloat(r.total)]));
+  const expenseMap = Object.fromEntries(expenseRows.map(r => [r.month, parseFloat(r.total)]));
+
+  const now = new Date();
+  const rows = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const revenue = revenueMap[key] || 0;
+    const expenses = expenseMap[key] || 0;
+    rows.push({ month: key, revenue, expenses, net: revenue - expenses });
+  }
+
+  const totals = rows.reduce((acc, r) => ({
+    revenue: acc.revenue + r.revenue,
+    expenses: acc.expenses + r.expenses,
+    net: acc.net + r.net,
+  }), { revenue: 0, expenses: 0, net: 0 });
+
+  res.json({ rows, totals });
+});
+
 module.exports = router;
