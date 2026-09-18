@@ -1442,10 +1442,12 @@ async function renderBookingsTab(main) {
   if (!state.bookingsSearch) state.bookingsSearch = '';
   if (!state.bookingsFilter) state.bookingsFilter = 'all';
 
+  const nowIso = new Date().toISOString();
   const nonCancelled = state.bookings.filter(b => b.status !== 'annule');
   const pendingCount = nonCancelled.filter(b => b.status === 'en_attente').length;
 
   let filteredBookings = state.bookings.filter(b => {
+    if (b.slot_datetime && b.slot_datetime < nowIso) return false; // les RDV déjà passés disparaissent de la liste
     if (state.bookingsFilter === 'attente') return b.status === 'en_attente';
     if (state.bookingsFilter === 'confirme') return b.status === 'confirme';
     if (state.bookingsFilter === 'annule') return b.status === 'annule';
