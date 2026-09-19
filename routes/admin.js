@@ -532,26 +532,6 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
     SELECT COUNT(*) c FROM clients WHERE created_at >= now() - interval '30 days'
   `);
 
-  const monthRevenueRow = await db.get(`
-    SELECT COALESCE(SUM(s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)),0) as total, COUNT(*) as c
-    FROM bookings b JOIN services s ON s.id = b.service_id
-    WHERE b.status = 'confirme' AND b.slot_datetime <= now()
-      AND date_trunc('month', b.slot_datetime) = date_trunc('month', now())
-  `);
-
-  const lastMonthRevenueRow = await db.get(`
-    SELECT COALESCE(SUM(s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)),0) as total
-    FROM bookings b JOIN services s ON s.id = b.service_id
-    WHERE b.status = 'confirme' AND b.slot_datetime <= now()
-      AND date_trunc('month', b.slot_datetime) = date_trunc('month', now() - interval '1 month')
-  `);
-
-  const avgBasketRow = await db.get(`
-    SELECT COALESCE(AVG(s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)),0) as avg_price
-    FROM bookings b JOIN services s ON s.id = b.service_id
-    WHERE b.status = 'confirme' AND b.slot_datetime <= now()
-  `);
-
   const monthManualRow = await db.get(`
     SELECT COALESCE(SUM(amount),0) as total, COUNT(*) as c
     FROM manual_revenue
@@ -606,40 +586,19 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
   `);
 
   const weekRevenueRow = await db.get(`
-    WITH combined AS (
-      SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
-      FROM bookings b JOIN services s ON s.id = b.service_id
-      WHERE b.status = 'confirme' AND b.slot_datetime <= now()
-      UNION ALL
-      SELECT entry_date AS rev_date, amount FROM manual_revenue
-    )
-    SELECT COALESCE(SUM(amount),0) as total FROM combined
-    WHERE date_trunc('week', rev_date) = date_trunc('week', now())
+    SELECT COALESCE(SUM(amount),0) as total FROM manual_revenue
+    WHERE date_trunc('week', entry_date) = date_trunc('week', now())
   `);
 
   const yearRevenueRow = await db.get(`
-    WITH combined AS (
-      SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
-      FROM bookings b JOIN services s ON s.id = b.service_id
-      WHERE b.status = 'confirme' AND b.slot_datetime <= now()
-      UNION ALL
-      SELECT entry_date AS rev_date, amount FROM manual_revenue
-    )
-    SELECT COALESCE(SUM(amount),0) as total FROM combined
-    WHERE date_trunc('year', rev_date) = date_trunc('year', now())
+    SELECT COALESCE(SUM(amount),0) as total FROM manual_revenue
+    WHERE date_trunc('year', entry_date) = date_trunc('year', now())
   `);
 
   const monthlyBreakdownRows = await db.all(`
-    WITH combined AS (
-      SELECT b.slot_datetime::date AS rev_date, (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
-      FROM bookings b JOIN services s ON s.id = b.service_id
-      WHERE b.status = 'confirme' AND b.slot_datetime <= now()
-      UNION ALL
-      SELECT entry_date AS rev_date, amount FROM manual_revenue
-    )
-    SELECT to_char(date_trunc('month', rev_date), 'YYYY-MM') as mois, COALESCE(SUM(amount),0) as total
-    FROM combined
-    WHERE rev_date >= date_trunc('month', now()) - interval '11 months'
+    SELECT to_char(date_trunc('month', entry_date), 'YYYY-MM') as mois, COALESCE(SUM(amount),0) as total
+    FROM manual_revenue
+    WHERE entry_date >= date_trunc('month', now()) - interval '11 months'
     GROUP BY mois
     ORDER BY mois ASC
   `);
@@ -667,8 +626,8 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
     ORDER BY total DESC
   `);
 
-  const monthRevenue = parseFloat(monthRevenueRow.total) + parseFloat(monthManualRow.total);
-  const lastMonthRevenue = parseFloat(lastMonthRevenueRow.total) + parseFloat(lastMonthManualRow.total);
+  const monthRevenue = parseFloat(monthManualRow.total);
+  const lastMonthRevenue = parseFloat(lastMonthManualRow.total);
   let revenueGrowthPct = null;
   if (lastMonthRevenue > 0) {
     revenueGrowthPct = ((monthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100;
@@ -676,10 +635,8 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
     revenueGrowthPct = 100;
   }
 
-  const monthRevenueCount = parseInt(monthRevenueRow.c, 10) + parseInt(monthManualRow.c, 10);
-  const avgBasket = monthRevenueCount > 0
-    ? (parseFloat(avgBasketRow.avg_price) * parseInt(monthRevenueRow.c, 10) + parseFloat(monthManualRow.total)) / monthRevenueCount
-    : parseFloat(avgBasketRow.avg_price);
+  const monthRevenueCount = parseInt(monthManualRow.c, 10);
+  const avgBasket = monthRevenueCount > 0 ? monthRevenue / monthRevenueCount : 0;
 
   const totalWithVisits = parseInt(returningRow.total, 10);
   const returningCount = parseInt(returningRow.returning, 10);
@@ -960,19 +917,8 @@ router.get('/accounting', requireAdminAuth, async (req, res) => {
     : `date_trunc('month', %COL%) = date_trunc('month', now())`;
   const monthParams = monthParam ? [monthParam] : [];
 
-  // Revenus : prestations confirmées ET déjà passées (pas les RDV futurs, même confirmés)
-  const bookingRows = await db.all(
-    `SELECT b.slot_datetime AS d, c.prenom, c.nom, s.name AS service_name,
-            (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
-     FROM bookings b
-     JOIN clients c ON c.id = b.client_id
-     JOIN services s ON s.id = b.service_id
-     WHERE b.status = 'confirme' AND b.slot_datetime <= now() AND ${monthFilterSql.replace('%COL%', 'b.slot_datetime')}
-     ORDER BY b.slot_datetime DESC`,
-    monthParams
-  );
-
-  // Revenus manuels (espèce / virement)
+  // Revenus manuels (espèce / virement) — inclut aussi les transactions bancaires
+  // synchronisées automatiquement (elles sont insérées ici avec la méthode "virement")
   const manualRows = await db.all(
     `SELECT entry_date AS d, amount, note, payment_method
      FROM manual_revenue
@@ -993,19 +939,6 @@ router.get('/accounting', requireAdminAuth, async (req, res) => {
   const EXPENSE_LABELS = { essence: 'Essence / déplacement', produits: 'Produits', materiel: 'Matériel', assurance: 'Assurance', autre: 'Autre' };
 
   const entries = [];
-
-  let prestationsTotal = 0;
-  bookingRows.forEach(b => {
-    const amount = parseFloat(b.amount);
-    prestationsTotal += amount;
-    entries.push({
-      date: b.d,
-      label: `Prestation — ${b.prenom} ${b.nom}${b.service_name ? ` (${b.service_name})` : ''}`,
-      category: 'Prestations coiffure',
-      type: 'revenu',
-      amount,
-    });
-  });
 
   let especeTotal = 0;
   let virementTotal = 0;
@@ -1038,7 +971,7 @@ router.get('/accounting', requireAdminAuth, async (req, res) => {
 
   entries.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-  const revenueTotal = prestationsTotal + especeTotal + virementTotal;
+  const revenueTotal = especeTotal + virementTotal;
   const netResult = revenueTotal - expensesTotal;
 
   const settingsRow = await db.get('SELECT setaside_percent FROM accounting_settings WHERE id = ?', ['default']);
@@ -1048,7 +981,6 @@ router.get('/accounting', requireAdminAuth, async (req, res) => {
   res.json({
     month: monthParam || new Date().toISOString().slice(0, 7),
     revenue: {
-      prestations: prestationsTotal,
       espece: especeTotal,
       virement: virementTotal,
       total: revenueTotal,
@@ -1237,16 +1169,9 @@ router.get('/accounting/export', requireAdminAuth, async (req, res) => {
   const months = Math.min(24, Math.max(1, parseInt(req.query.months, 10) || 12));
 
   const revenueRows = await db.all(`
-    WITH combined AS (
-      SELECT b.slot_datetime AS d, (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
-      FROM bookings b JOIN services s ON s.id = b.service_id
-      WHERE b.status = 'confirme' AND b.slot_datetime <= now()
-      UNION ALL
-      SELECT entry_date AS d, amount FROM manual_revenue
-    )
-    SELECT to_char(date_trunc('month', d), 'YYYY-MM') as month, COALESCE(SUM(amount),0) as total
-    FROM combined
-    WHERE d >= date_trunc('month', now()) - (? || ' months')::interval
+    SELECT to_char(date_trunc('month', entry_date), 'YYYY-MM') as month, COALESCE(SUM(amount),0) as total
+    FROM manual_revenue
+    WHERE entry_date >= date_trunc('month', now()) - (? || ' months')::interval
     GROUP BY 1 ORDER BY 1
   `, [months - 1]);
 
