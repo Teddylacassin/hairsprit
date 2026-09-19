@@ -19,15 +19,8 @@ async function computeMonthStats(monthStr) {
   const { start, end } = monthBounds(monthStr);
 
   const revenueRow = await db.get(`
-    WITH combined AS (
-      SELECT b.slot_datetime AS d, (s.price + COALESCE(b.urgent_surcharge,0) + COALESCE(b.commune_surcharge,0)) AS amount
-      FROM bookings b JOIN services s ON s.id = b.service_id
-      WHERE b.status = 'confirme' AND b.slot_datetime <= now()
-      UNION ALL
-      SELECT entry_date AS d, amount FROM manual_revenue
-    )
     SELECT COALESCE(SUM(amount),0) as total, COUNT(*) as visits
-    FROM combined WHERE d >= ? AND d < ?
+    FROM manual_revenue WHERE entry_date >= ? AND entry_date < ?
   `, [start, end]);
 
   const newClientsRow = await db.get(
