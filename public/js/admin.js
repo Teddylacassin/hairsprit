@@ -1978,17 +1978,14 @@ async function renderAccountingTab(main) {
       <span style="font-weight:600;text-transform:capitalize;">${monthLabel(data.month)}</span>
       <button id="acct-next" style="background:none;border:none;color:var(--blanc);font-size:18px;cursor:pointer;padding:4px 10px;">›</button>
     </div>
-    <div class="sub" style="color:var(--argent);font-size:11.5px;margin-bottom:14px;">Seules les prestations déjà réalisées comptent ici — un RDV confirmé mais pas encore passé n'apparaît pas.</div>
+    <div class="sub" style="color:var(--argent);font-size:11.5px;margin-bottom:14px;">Seul l'argent réellement reçu compte ici (virements bancaires synchronisés + espèces/virements ajoutés à la main) — un rendez-vous confirmé, même déjà passé, n'apparaît pas tant qu'il n'est pas réellement encaissé.</div>
 
     <div class="scanner-box" style="max-width:100%;">
       <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13.5px;font-weight:600;">
         <span>Revenus</span><span></span>
       </div>
-      <div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:12.5px;color:var(--argent-clair);">
-        <span>Prestations coiffure</span><span style="font-family:var(--font-mono);">${data.revenue.prestations.toFixed(2)}€</span>
-      </div>
-      ${data.revenue.espece > 0 ? `<div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:12.5px;color:var(--argent-clair);"><span>💵 Espèce (hors app)</span><span style="font-family:var(--font-mono);">${data.revenue.espece.toFixed(2)}€</span></div>` : ''}
-      ${data.revenue.virement > 0 ? `<div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:12.5px;color:var(--argent-clair);"><span>💳 Virement (hors app)</span><span style="font-family:var(--font-mono);">${data.revenue.virement.toFixed(2)}€</span></div>` : ''}
+      ${data.revenue.espece > 0 ? `<div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:12.5px;color:var(--argent-clair);"><span>💵 Espèce</span><span style="font-family:var(--font-mono);">${data.revenue.espece.toFixed(2)}€</span></div>` : ''}
+      ${data.revenue.virement > 0 ? `<div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:12.5px;color:var(--argent-clair);"><span>💳 Virement</span><span style="font-family:var(--font-mono);">${data.revenue.virement.toFixed(2)}€</span></div>` : ''}
       <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13.5px;font-weight:600;">
         <span>Total revenus</span><span style="font-family:var(--font-mono);color:var(--succes);">${data.revenue.total.toFixed(2)}€</span>
       </div>
